@@ -20,12 +20,14 @@ class SEOPC_Plugin {
         new SEOPC_Admin_Menu();
         new SEOPC_Dashboard_Widget();
         new SEOPC_Ajax_Handler();
+        new SEOPC_Admin_Columns();
         
         // Enqueue assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
         
         // Add settings link
         add_filter('plugin_action_links_' . SEOPC_PLUGIN_BASENAME, [$this, 'add_settings_link']);
+        add_action('admin_footer', [$this, 'render_results_modal']);
     }
     
     public function enqueue_assets($hook) {
@@ -36,7 +38,7 @@ class SEOPC_Plugin {
             'index.php' // Dashboard
         ];
         
-        if (!in_array($hook, $allowed_pages)) {
+        if (!in_array($hook, $allowed_pages) && !in_array($hook, ['post.php', 'post-new.php'], true)) {
             return;
         }
         
@@ -58,6 +60,7 @@ class SEOPC_Plugin {
         wp_localize_script('seopc-admin-js', 'seopc_ajax', [
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('seopc_nonce'),
+            'admin_url' => admin_url(),
             'strings' => [
                 'analyzing' => __('Analyzing...', 'seo-performance-checker'),
                 'error' => __('Error occurred', 'seo-performance-checker'),
@@ -66,6 +69,35 @@ class SEOPC_Plugin {
         ]);
     }
     
+
+    public function render_results_modal() {
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        if (!$screen) {
+            return;
+        }
+
+        $allowed_bases = ['toplevel_page_seo-performance', 'seo-performance_page_seo-meta-analyzer', 'seo-performance_page_seo-sitemap', 'dashboard', 'post'];
+        if (!in_array($screen->base, $allowed_bases, true)) {
+            return;
+        }
+
+        if ($screen->base === 'toplevel_page_seo-performance') {
+            return;
+        }
+        ?>
+        <div id="seopc-results-modal" class="seopc-modal" style="display:none;">
+            <div class="seopc-modal-backdrop"></div>
+            <div class="seopc-modal-dialog">
+                <div class="seopc-modal-header">
+                    <h2><?php _e('Saved Results', 'seo-performance-checker'); ?></h2>
+                    <button type="button" class="button-link seopc-modal-close" aria-label="<?php esc_attr_e('Close', 'seo-performance-checker'); ?>">&times;</button>
+                </div>
+                <div class="seopc-modal-body"></div>
+            </div>
+        </div>
+        <?php
+    }
+
     public function add_settings_link($links) {
         $settings_link = '<a href="' . admin_url('admin.php?page=seo-performance') . '">' . __('Settings', 'seo-performance-checker') . '</a>';
         array_unshift($links, $settings_link);

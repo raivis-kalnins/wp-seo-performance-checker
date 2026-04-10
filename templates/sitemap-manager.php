@@ -1,5 +1,18 @@
 <div class="wrap seopc-wrap">
-    <h1><?php _e('Sitemap Manager', 'seo-performance-checker'); ?></h1>
+    <div class="seopc-page-header">
+        <h1><?php _e('Sitemap Manager', 'seo-performance-checker'); ?></h1>
+
+        <div class="seopc-page-actions">
+            <a href="<?php echo admin_url('admin.php?page=seo-performance'); ?>" class="button button-primary seopc-dashboard-button">
+                <span class="dashicons dashicons-chart-line"></span>
+                <?php _e('Dashboard', 'seo-performance-checker'); ?>
+            </a>
+            <a href="<?php echo admin_url(); ?>" class="button seopc-dashboard-button">
+                <span class="dashicons dashicons-dashboard"></span>
+                <?php _e('WordPress Dashboard', 'seo-performance-checker'); ?>
+            </a>
+        </div>
+    </div>
     
     <div class="seopc-status-dashboard">
         <div class="seopc-status-card">

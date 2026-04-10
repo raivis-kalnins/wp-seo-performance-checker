@@ -47,7 +47,7 @@ $critical_issues = SEOPC_Dashboard_Widget::get_critical_issues_count();
     
     <p style="margin-top: 15px; text-align: center;">
         <a href="<?php echo admin_url('admin.php?page=seo-performance'); ?>" class="button">
-            Full Analysis →
+            Open SEO Dashboard
         </a>
     </p>
 </div>
