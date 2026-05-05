@@ -69,6 +69,22 @@
 
             html += '<div class="seopc-analysis-category">';
             html += '<h4>🖼️ Images (' + data.seo.images.total + ')</h4>';
+            if (data.seo.images.total_size_label) {
+                html += '<p><strong>Total image weight:</strong> ' + escapeHtml(data.seo.images.total_size_label) + '</p>';
+            }
+            if (data.seo.images.items && data.seo.images.items.length) {
+                html += '<div class="seopc-link-panel"><h5>Image details</h5><ul class="seopc-link-list">';
+                data.seo.images.items.slice(0, 8).forEach(function(item) {
+                    html += '<li>';
+                    html += '<strong>' + escapeHtml(item.basename || item.src || 'Image') + '</strong>';
+                    html += '<small>' + escapeHtml((item.size_label || 'Unknown size') + (item.dimensions ? ' · ' + item.dimensions : '') + (item.extension ? ' · ' + String(item.extension).toUpperCase() : '')) + '</small>';
+                    if (item.src) { html += '<div><a href="' + escapeHtml(item.src) + '" target="_blank" rel="noopener noreferrer">Open image</a></div>'; }
+                    if (item.media_library_url) { html += '<div><a href="' + escapeHtml(item.media_library_url) + '" target="_blank" rel="noopener noreferrer">Open in Media Library</a></div>'; }
+                    if (item.attachment_id) { html += '<div><a href="' + escapeHtml(seopc_ajax.admin_url + 'options-general.php?page=seo-performance&tab=media-tools&media_tab=optimizer&attachment_id=' + item.attachment_id) + '">Open in Media Tools</a></div>'; }
+                    html += '</li>';
+                });
+                html += '</ul></div>';
+            }
             if (data.seo.images.issues.length > 0) {
                 data.seo.images.issues.forEach(function(issue) {
                     html += '<div class="seopc-issue-card ' + issue.severity + '">';
@@ -181,6 +197,17 @@
         
         function displayMetaResults(data) {
             var html = '<div class="seopc-analysis-grid">';
+            html += '<div class="seopc-analysis-category">';
+            html += '<h4>SEO Meta Score</h4>';
+            html += '<p><strong>' + parseInt(data.score || 0, 10) + '/100</strong></p>';
+            if (data.seo_checks && data.seo_checks.length) {
+                html += '<ul class="seopc-link-list">';
+                data.seo_checks.forEach(function(check) {
+                    html += '<li><strong>' + escapeHtml(check.label) + '</strong><small>' + (check.status === 'pass' ? 'Pass' : 'Needs work') + '</small></li>';
+                });
+                html += '</ul>';
+            }
+            html += '</div>';
             
             // Basic Meta
             html += '<div class="seopc-analysis-category">';
@@ -223,7 +250,46 @@
                 html += '<div class="seopc-tag-status missing"><span class="dashicons dashicons-no"></span> No Twitter Card tags</div>';
             }
             html += '</div>';
+
+            html += '<div class="seopc-analysis-category">';
+            html += '<h4>Technical Meta</h4>';
+            html += '<div class="seopc-tag-status ' + (data.technical_meta.status || 'warning') + '">';
+            html += '<span class="dashicons dashicons-' + ((data.technical_meta.viewport && data.technical_meta.charset) ? 'yes' : 'warning') + '"></span>';
+            html += '<div><strong>Viewport:</strong> ' + (data.technical_meta.viewport ? 'Present' : 'Missing') + '<br><strong>Charset:</strong> ' + (data.technical_meta.charset ? 'Present' : 'Missing') + '</div>';
+            html += '</div>';
+            html += '<div class="seopc-tag-status ' + ((data.canonical && data.canonical.present && data.canonical.correct) ? 'present' : 'warning') + '">';
+            html += '<div><strong>Canonical:</strong> ' + ((data.canonical && data.canonical.present) ? escapeHtml(data.canonical.url || '') : 'Missing') + '</div>';
+            html += '</div>';
+            html += '<div class="seopc-tag-status ' + (((data.robots && data.robots.indexable) && (data.robots && data.robots.followable)) ? 'present' : 'warning') + '">';
+            html += '<div><strong>Robots:</strong> ' + escapeHtml((data.robots && (data.robots.content || data.robots.message)) || 'Not set') + '</div>';
+            html += '</div>';
+            html += '</div>';
             
+            html += '<div class="seopc-analysis-category">';
+            html += '<h4>Schema.org</h4>';
+            html += '<p><strong>Detected items:</strong> ' + parseInt((data.schema_org && data.schema_org.count) || 0, 10) + '</p>';
+            if (data.schema_org && data.schema_org.validator_url) {
+                html += '<p><a href="' + escapeHtml(data.schema_org.validator_url) + '" target="_blank" rel="noopener noreferrer">Open validator.schema.org</a></p>';
+            }
+            if (data.schema_org && data.schema_org.items && data.schema_org.items.length) {
+                html += '<ul class="seopc-link-list">';
+                data.schema_org.items.slice(0, 8).forEach(function(item) {
+                    html += '<li><strong>' + escapeHtml(item.type || 'Unknown') + '</strong><small>' + escapeHtml((item.format || 'schema') + ' · ' + parseInt(item.property_count || 0, 10) + ' properties') + '</small>';
+                    if (item.properties && item.properties.length) {
+                        html += '<div>' + escapeHtml(item.properties.join(', ')) + '</div>';
+                    }
+                    html += '</li>';
+                });
+                html += '</ul>';
+            }
+            if (data.schema_org && data.schema_org.issues && data.schema_org.issues.length) {
+                html += '<div class="seopc-issue-card warning"><strong>Schema issues</strong><ul>';
+                data.schema_org.issues.forEach(function(issue) {
+                    html += '<li>' + escapeHtml((issue.type || 'issue').replace(/_/g, ' ') + ': ' + (issue.message || '')) + '</li>';
+                });
+                html += '</ul></div>';
+            }
+            html += '</div>';
             html += '</div>';
             
             $('#seopc-meta-results').html(html).show();
@@ -448,6 +514,22 @@
             if (entry.timestamp) {
                 html += '<p><strong>Checked:</strong> ' + escapeHtml(entry.timestamp) + '</p>';
             }
+            if (entry.images && entry.images.total_size_label) {
+                html += '<p><strong>Total image weight:</strong> ' + escapeHtml(entry.images.total_size_label) + '</p>';
+            }
+            if (entry.images && entry.images.items && entry.images.items.length) {
+                html += '<h4>Images</h4><ul>';
+                entry.images.items.slice(0, 8).forEach(function(item) {
+                    html += '<li>';
+                    html += '<strong>' + escapeHtml(item.basename || item.src || 'Image') + '</strong>';
+                    html += ' - ' + escapeHtml((item.size_label || 'Unknown size') + (item.dimensions ? ' · ' + item.dimensions : '') + (item.extension ? ' · ' + String(item.extension).toUpperCase() : ''));
+                    if (item.src) { html += ' <a href="' + escapeHtml(item.src) + '" target="_blank" rel="noopener noreferrer">Image</a>'; }
+                    if (item.media_library_url) { html += ' <a href="' + escapeHtml(item.media_library_url) + '" target="_blank" rel="noopener noreferrer">Media</a>'; }
+                    if (item.attachment_id) { html += ' <a href="' + escapeHtml(seopc_ajax.admin_url + 'options-general.php?page=seo-performance&tab=media-tools&media_tab=optimizer&attachment_id=' + item.attachment_id) + '">Media Tools</a>'; }
+                    html += '</li>';
+                });
+                html += '</ul>';
+            }
             if (entry.images && entry.images.issues && entry.images.issues.length) {
                 html += '<h4>Image issues</h4><ul>';
                 entry.images.issues.slice(0, 5).forEach(function(issue) {
@@ -668,6 +750,155 @@
             });
         });
 
+        function toggleGoogleDateFields() {
+            var isCustom = $('#seopc-range').val() === 'custom';
+            $('.seopc-custom-date-field').toggle(isCustom);
+        }
+
+        function safeParseJson(text) {
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function formatChartMetricValue(metric, value) {
+            value = parseFloat(value || 0);
+            if (metric === 'ctr') {
+                return value.toFixed(2) + '%';
+            }
+            if (metric === 'position') {
+                return value.toFixed(2);
+            }
+            return Math.round(value).toLocaleString();
+        }
+
+        function chartMetricSummary(metric, values) {
+            if (!values.length) {
+                return '0';
+            }
+            var total = values.reduce(function(sum, current) { return sum + current; }, 0);
+            if (metric === 'ctr' || metric === 'position') {
+                return formatChartMetricValue(metric, total / values.length);
+            }
+            return formatChartMetricValue(metric, total);
+        }
+
+        function buildLinePath(points) {
+            return points.map(function(point, index) {
+                return (index === 0 ? 'M' : 'L') + point.x + ' ' + point.y;
+            }).join(' ');
+        }
+
+        function renderSimpleChart($card, metric) {
+            var series = safeParseJson($card.find('.seopc-chart-series-json').text());
+            var $canvas = $card.find('.seopc-chart-canvas');
+            var values = series.map(function(item) {
+                return parseFloat(item[metric] || 0);
+            });
+
+            if (!series.length) {
+                $canvas.html('<div class="seopc-chart-empty">No data available for this range.</div>');
+                return;
+            }
+
+            var width = 720;
+            var height = 260;
+            var padding = { top: 16, right: 18, bottom: 34, left: 44 };
+            var chartWidth = width - padding.left - padding.right;
+            var chartHeight = height - padding.top - padding.bottom;
+            var max = Math.max.apply(null, values);
+            var min = Math.min.apply(null, values);
+            if (max === min) {
+                max = max + 1;
+                min = Math.max(0, min - 1);
+            }
+            if (min > 0) {
+                min = 0;
+            }
+
+            var stepX = values.length > 1 ? chartWidth / (values.length - 1) : 0;
+            var points = values.map(function(value, index) {
+                var x = padding.left + (stepX * index);
+                var y = padding.top + chartHeight - (((value - min) / (max - min)) * chartHeight);
+                return { x: x, y: y, value: value, date: series[index].date || '' };
+            });
+
+            var horizontalLines = 4;
+            var grid = '';
+            for (var i = 0; i <= horizontalLines; i++) {
+                var y = padding.top + (chartHeight / horizontalLines) * i;
+                var gridValue = max - ((max - min) / horizontalLines) * i;
+                grid += '<line class="seopc-chart-grid" x1="' + padding.left + '" y1="' + y + '" x2="' + (width - padding.right) + '" y2="' + y + '"></line>';
+                grid += '<text class="seopc-chart-value-label" x="6" y="' + (y + 4) + '">' + escapeHtml(formatChartMetricValue(metric, gridValue)) + '</text>';
+            }
+
+            var axisLabels = '';
+            var labelIndexes = [];
+            if (series.length <= 4) {
+                labelIndexes = series.map(function(_, index) { return index; });
+            } else {
+                labelIndexes = [0, Math.floor((series.length - 1) / 3), Math.floor(((series.length - 1) * 2) / 3), series.length - 1];
+            }
+            var seen = {};
+            labelIndexes.forEach(function(index) {
+                if (seen[index]) {
+                    return;
+                }
+                seen[index] = true;
+                var point = points[index];
+                axisLabels += '<text class="seopc-chart-axis-label" x="' + point.x + '" y="' + (height - 8) + '" text-anchor="middle">' + escapeHtml((point.date || '').slice(5)) + '</text>';
+            });
+
+            var path = buildLinePath(points);
+            var circles = points.map(function(point) {
+                return '<circle class="seopc-chart-point" cx="' + point.x + '" cy="' + point.y + '" r="3"><title>' + escapeHtml(point.date + ': ' + formatChartMetricValue(metric, point.value)) + '</title></circle>';
+            }).join('');
+
+            var metricLabels = {
+                sessions: 'Sessions',
+                activeUsers: 'Users',
+                screenPageViews: 'Views',
+                clicks: 'Clicks',
+                impressions: 'Impressions',
+                ctr: 'Average CTR',
+                position: 'Average Position'
+            };
+
+            var html = '';
+            html += '<div class="seopc-chart-title-row">';
+            html += '<span class="seopc-chart-metric-label">' + escapeHtml(metricLabels[metric] || metric) + '</span>';
+            html += '<span class="seopc-chart-metric-total">' + escapeHtml(chartMetricSummary(metric, values)) + '</span>';
+            html += '</div>';
+            html += '<svg class="seopc-chart-svg" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="' + escapeHtml(metricLabels[metric] || metric) + ' trend chart">';
+            html += grid;
+            html += '<line class="seopc-chart-axis" x1="' + padding.left + '" y1="' + (padding.top + chartHeight) + '" x2="' + (width - padding.right) + '" y2="' + (padding.top + chartHeight) + '"></line>';
+            html += '<path class="seopc-chart-line" d="' + path + '"></path>';
+            html += circles;
+            html += axisLabels;
+            html += '</svg>';
+            $canvas.html(html);
+        }
+
+        function initGoogleCharts() {
+            toggleGoogleDateFields();
+            $('#seopc-range').off('change.seopc').on('change.seopc', toggleGoogleDateFields);
+
+            $('.seopc-chart-card').each(function() {
+                var $card = $(this);
+                var defaultMetric = $card.data('default-metric');
+                renderSimpleChart($card, defaultMetric);
+                $card.find('.seopc-chart-toolbar .button').off('click.seopc').on('click.seopc', function() {
+                    $card.find('.seopc-chart-toolbar .button').removeClass('is-primary');
+                    $(this).addClass('is-primary');
+                    renderSimpleChart($card, $(this).data('metric'));
+                });
+            });
+        }
+
+        initGoogleCharts();
+
         applyHistoryFilters();
 
         $(document).on('click', '.seopc-test-again-btn', function() {
@@ -690,9 +921,14 @@
                 success: function(response) {
                     if (response.success) {
                         var data = response.data;
+                        var scoreSummary = '';
+                        if (data.seo.score_breakdown && data.seo.score_breakdown.summary) {
+                            scoreSummary = '<p><strong>Why not 100:</strong> ' + escapeHtml(data.seo.score_breakdown.summary) + '</p>';
+                        }
                         $output.html(
                             '<p><strong>Score:</strong> ' + parseInt(data.seo.overall_score || 0, 10) + '/100</p>' +
                             '<p><strong>Critical issues:</strong> ' + parseInt(data.seo.critical_issues || 0, 10) + '</p>' +
+                            scoreSummary +
                             '<p><strong>Requests:</strong> ' + getTotalRequests(data.speed) + '</p>' +
                             '<p><strong>Load time:</strong> ' + escapeHtml(data.speed.load_time.seconds + 's') + '</p>' +
                             '<p><button type="button" class="button button-secondary seopc-view-results-btn" data-post-id="' + postId + '">View Results</button></p>'

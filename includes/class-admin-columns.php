@@ -48,7 +48,7 @@ class SEOPC_Admin_Columns {
 
     public function render_sidebar_metabox($post) {
         $entry = $this->get_score_entry($post->ID);
-        $edit_link = admin_url('admin.php?page=seo-performance');
+        $edit_link = admin_url('options-general.php?page=seo-performance');
 
         echo '<div class="seopc-single-box" data-post-id="' . esc_attr($post->ID) . '">';
 

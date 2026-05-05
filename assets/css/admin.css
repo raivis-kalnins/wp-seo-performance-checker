@@ -765,3 +765,233 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Google dashboard enhancements */
+.seopc-google-filter-form {
+    padding: 14px;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    background: #f6f7f7;
+}
+
+.seopc-google-filter-form .seopc-filter-field {
+    min-width: 150px;
+}
+
+.seopc-google-filter-form .seopc-filter-field label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+.seopc-google-filter-form input[type="date"],
+.seopc-google-filter-form select {
+    min-width: 150px;
+}
+
+.seopc-metric-card h4 {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: baseline;
+}
+
+.seopc-metric-card h4 small {
+    color: #646970;
+    font-weight: 500;
+}
+
+.seopc-metric-value {
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: 6px;
+}
+
+.seopc-metric-delta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+.seopc-metric-delta.good {
+    background: #edf7ed;
+    color: #0a7a24;
+}
+
+.seopc-metric-delta.bad {
+    background: #fdeeee;
+    color: #b42318;
+}
+
+.seopc-metric-delta.neutral,
+.seopc-score-badge.neutral {
+    background: #eef2f6;
+    color: #1d2327;
+}
+
+.seopc-chart-card-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.seopc-chart-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.seopc-chart-toolbar .button.is-primary {
+    background: #2271b1;
+    border-color: #2271b1;
+    color: #fff;
+}
+
+.seopc-chart-canvas {
+    min-height: 250px;
+}
+
+.seopc-chart-empty {
+    min-height: 220px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #646970;
+    border: 1px dashed #c3c4c7;
+    border-radius: 6px;
+    background: #fff;
+}
+
+.seopc-chart-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.seopc-chart-axis,
+.seopc-chart-grid {
+    stroke: #dcdcde;
+    stroke-width: 1;
+}
+
+.seopc-chart-line {
+    fill: none;
+    stroke: #2271b1;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.seopc-chart-point {
+    fill: #2271b1;
+}
+
+.seopc-chart-axis-label,
+.seopc-chart-value-label {
+    fill: #646970;
+    font-size: 11px;
+}
+
+.seopc-chart-title-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+.seopc-chart-metric-label {
+    color: #1d2327;
+}
+
+.seopc-chart-metric-total {
+    color: #2271b1;
+}
+
+.seopc-insight-stack {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.seopc-insight-item {
+    border-left: 4px solid #2271b1;
+    background: #f0f6fc;
+    padding: 10px 12px;
+    border-radius: 0 4px 4px 0;
+}
+
+.seopc-insight-item p {
+    margin: 6px 0 0;
+}
+
+@media (max-width: 782px) {
+    .seopc-chart-card-header,
+    .seopc-metric-card h4 {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+.seopc-post-metric-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.seopc-post-metric-list li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 4px 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-top: 1px solid #e0e0e0;
+}
+
+.seopc-post-metric-list li:first-child {
+    border-top: none;
+}
+
+.seopc-post-metric-list small {
+    grid-column: 1 / -1;
+}
+
+.seopc-inline-score {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 84px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 8px;
+}
+.seopc-inline-score.good { background:#00a32a; }
+.seopc-inline-score.warning { background:#dba617; }
+.seopc-inline-score.bad { background:#d63638; }
+.seopc-checklist-mini {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.seopc-checklist-mini li {
+    padding: 8px 0;
+    border-bottom: 1px solid #dcdcde;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.seopc-checklist-mini li:last-child { border-bottom: 0; }
+.seopc-post-metric-list-compact li { grid-template-columns: 1.6fr .8fr .8fr; }
+#seopc-post-analytics .seopc-chart-svg { width:100%; height:auto; }
+#seopc-post-analytics .seopc-chart-canvas { margin-top:8px; }

@@ -21,6 +21,12 @@ class SEOPC_Plugin {
         new SEOPC_Dashboard_Widget();
         new SEOPC_Ajax_Handler();
         new SEOPC_Admin_Columns();
+        new SEOPC_Google_Integrations();
+        new SEOPC_Post_Analytics_Widget();
+        new SEOPC_Keyword_Tracker();
+        new SEOPC_Competitor_Benchmark();
+        new SEOPC_Media_Tools();
+        new SEOPC_Dynamic_Overrides();
         
         // Enqueue assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
@@ -32,9 +38,7 @@ class SEOPC_Plugin {
     
     public function enqueue_assets($hook) {
         $allowed_pages = [
-            'toplevel_page_seo-performance',
-            'seo-performance_page_seo-meta-analyzer',
-            'seo-performance_page_seo-sitemap',
+            'settings_page_seo-performance',
             'index.php' // Dashboard
         ];
         
@@ -76,12 +80,12 @@ class SEOPC_Plugin {
             return;
         }
 
-        $allowed_bases = ['toplevel_page_seo-performance', 'seo-performance_page_seo-meta-analyzer', 'seo-performance_page_seo-sitemap', 'dashboard', 'post'];
+        $allowed_bases = ['settings_page_seo-performance', 'dashboard', 'post'];
         if (!in_array($screen->base, $allowed_bases, true)) {
             return;
         }
 
-        if ($screen->base === 'toplevel_page_seo-performance') {
+        if ($screen->base === 'settings_page_seo-performance') {
             return;
         }
         ?>
@@ -99,7 +103,7 @@ class SEOPC_Plugin {
     }
 
     public function add_settings_link($links) {
-        $settings_link = '<a href="' . admin_url('admin.php?page=seo-performance') . '">' . __('Settings', 'seo-performance-checker') . '</a>';
+        $settings_link = '<a href="' . admin_url('options-general.php?page=seo-performance') . '">' . __('Settings', 'seo-performance-checker') . '</a>';
         array_unshift($links, $settings_link);
         return $links;
     }

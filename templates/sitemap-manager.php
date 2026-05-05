@@ -3,7 +3,7 @@
         <h1><?php _e('Sitemap Manager', 'seo-performance-checker'); ?></h1>
 
         <div class="seopc-page-actions">
-            <a href="<?php echo admin_url('admin.php?page=seo-performance'); ?>" class="button button-primary seopc-dashboard-button">
+            <a href="<?php echo add_query_arg(['page' => 'seo-performance'], admin_url('options-general.php')); ?>" class="button button-primary seopc-dashboard-button">
                 <span class="dashicons dashicons-chart-line"></span>
                 <?php _e('Dashboard', 'seo-performance-checker'); ?>
             </a>
@@ -13,6 +13,8 @@
             </a>
         </div>
     </div>
+
+    <?php if (class_exists('SEOPC_Admin_Menu')) { SEOPC_Admin_Menu::render_tabs('sitemap'); } ?>
     
     <div class="seopc-status-dashboard">
         <div class="seopc-status-card">

@@ -21,7 +21,7 @@ class SEOPC_SEO_Analyzer {
             'url' => $url,
             'basic_seo' => $this->analyze_basic_seo($post, $content),
             'images' => $this->analyze_images_detailed($content, $html),
-            'headings' => $this->analyze_heading_structure_detailed($content),
+            'headings' => $this->analyze_heading_structure_detailed($content, $html),
             'accessibility' => $this->analyze_accessibility($html, $content),
             'html_semantics' => $this->analyze_html_semantics($html, $content),
             'clickability' => $this->analyze_clickability($html),
@@ -29,7 +29,8 @@ class SEOPC_SEO_Analyzer {
             'timestamp' => current_time('mysql')
         ];
 
-        $analysis['overall_score'] = $this->calculate_overall_score($analysis);
+        $analysis['score_breakdown'] = $this->build_score_breakdown($analysis);
+        $analysis['overall_score'] = $analysis['score_breakdown']['final_score'];
         $analysis['critical_issues'] = $this->count_critical_issues($analysis);
 
         $this->save_analysis_history($analysis);
@@ -39,16 +40,26 @@ class SEOPC_SEO_Analyzer {
 
     private function fetch_page_html($url) {
         $response = wp_remote_get($url, [
-            'timeout' => 15,
+            'timeout' => 20,
+            'redirection' => 5,
             'sslverify' => false,
-            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'headers' => [
+                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Cache-Control' => 'no-cache',
+            ],
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36 SEO-Performance-Checker/' . SEOPC_VERSION
         ]);
 
         if (is_wp_error($response)) {
             return '';
         }
 
-        return wp_remote_retrieve_body($response);
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code < 200 || $code >= 400) {
+            return '';
+        }
+
+        return (string) wp_remote_retrieve_body($response);
     }
 
     private function analyze_basic_seo($post, $content) {
@@ -63,24 +74,35 @@ class SEOPC_SEO_Analyzer {
     }
 
     private function analyze_images_detailed($content, $html) {
-        preg_match_all('/<img[^>]+>/i', $content, $matches);
-        $images = $matches[0];
+        $images = $this->get_rendered_image_tags($html);
+        if (empty($images)) {
+            preg_match_all('/<img[^>]+>/i', $content, $matches);
+            $images = $matches[0];
+        }
 
         $analysis = [
             'total' => count($images),
             'optimized_count' => 0,
             'issues' => [],
-            'recommendations' => []
+            'recommendations' => [],
+            'items' => [],
+            'total_size_bytes' => 0,
+            'total_size_label' => '0 B'
         ];
 
         foreach ($images as $index => $img_tag) {
             $img_data = $this->parse_image_tag($img_tag);
+            $details = $this->get_image_details($img_data, $img_tag);
+            $analysis['items'][] = $details;
+            $analysis['total_size_bytes'] += (int) ($details['size_bytes'] ?? 0);
 
             if (empty($img_data['alt'])) {
                 $analysis['issues'][] = [
                     'type' => 'missing_alt',
                     'severity' => 'critical',
                     'image' => basename($img_data['src'] ?: 'unnamed'),
+                    'image_url' => $details['src'],
+                    'media_library_url' => $details['media_library_url'],
                     'location' => 'Content',
                     'fix' => 'Add descriptive alt text',
                     'impact' => 'Accessibility and SEO penalty'
@@ -90,6 +112,8 @@ class SEOPC_SEO_Analyzer {
                     'type' => 'short_alt',
                     'severity' => 'warning',
                     'image' => basename($img_data['src']),
+                    'image_url' => $details['src'],
+                    'media_library_url' => $details['media_library_url'],
                     'current' => $img_data['alt'],
                     'fix' => 'Expand alt text (5-125 characters)'
                 ];
@@ -100,19 +124,23 @@ class SEOPC_SEO_Analyzer {
                     'type' => 'missing_dimensions',
                     'severity' => 'warning',
                     'image' => basename($img_data['src']),
+                    'image_url' => $details['src'],
+                    'media_library_url' => $details['media_library_url'],
                     'fix' => 'Add width and height attributes',
                     'impact' => 'Causes layout shift (CLS)'
                 ];
             }
 
             if ($img_data['src']) {
-                $ext = strtolower(pathinfo($img_data['src'], PATHINFO_EXTENSION));
+                $ext = strtolower(pathinfo((string) wp_parse_url($img_data['src'], PHP_URL_PATH), PATHINFO_EXTENSION));
                 if (in_array($ext, ['jpg', 'jpeg', 'png'], true) && !in_array($ext, ['webp', 'avif'], true)) {
                     $analysis['issues'][] = [
                         'type' => 'format_optimization',
                         'severity' => 'recommendation',
                         'image' => basename($img_data['src']),
-                        'fix' => 'Convert to WebP format',
+                        'image_url' => $details['src'],
+                        'media_library_url' => $details['media_library_url'],
+                        'fix' => 'Convert to WebP or AVIF format',
                         'savings' => '25-35%'
                     ];
                 }
@@ -123,16 +151,24 @@ class SEOPC_SEO_Analyzer {
                     'type' => 'lazy_loading',
                     'severity' => 'recommendation',
                     'image' => basename($img_data['src']),
+                    'image_url' => $details['src'],
+                    'media_library_url' => $details['media_library_url'],
                     'fix' => 'Add loading="lazy"'
                 ];
             }
+
+            if (!empty($details['modern_format'])) {
+                $analysis['optimized_count']++;
+            }
         }
+
+        $analysis['total_size_label'] = $this->format_bytes($analysis['total_size_bytes']);
 
         return $analysis;
     }
 
     private function parse_image_tag($tag) {
-        $data = ['src' => '', 'alt' => '', 'width' => '', 'height' => ''];
+        $data = ['src' => '', 'alt' => '', 'width' => '', 'height' => '', 'class' => '', 'loading' => ''];
 
         if (preg_match('/src=["\']([^"\']+)["\']/', $tag, $m)) {
             $data['src'] = $m[1];
@@ -146,18 +182,123 @@ class SEOPC_SEO_Analyzer {
         if (preg_match('/height=["\'](\d+)["\']/', $tag, $m)) {
             $data['height'] = $m[1];
         }
+        if (preg_match('/class=["\']([^"\']+)["\']/', $tag, $m)) {
+            $data['class'] = $m[1];
+        }
+        if (preg_match('/loading=["\']([^"\']+)["\']/', $tag, $m)) {
+            $data['loading'] = $m[1];
+        }
 
         return $data;
     }
 
-    private function analyze_heading_structure_detailed($content) {
-        preg_match_all('/<h([1-6])[^>]*>(.*?)<\/h\1>/is', $content, $matches, PREG_SET_ORDER);
+    private function get_image_details($img_data, $img_tag) {
+        $src = $img_data['src'] ?? '';
+        $attachment_id = 0;
+
+        if (preg_match('/wp-image-(\d+)/', $img_tag, $class_match)) {
+            $attachment_id = (int) $class_match[1];
+        }
+
+        if (!$attachment_id && $src) {
+            $attachment_id = attachment_url_to_postid($src);
+        }
+
+        $home_host = wp_parse_url(home_url(), PHP_URL_HOST);
+        $image_host = wp_parse_url($src, PHP_URL_HOST);
+        $is_external = $image_host && $home_host && strtolower($image_host) !== strtolower($home_host);
+        $path = (string) wp_parse_url($src, PHP_URL_PATH);
+        $extension = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        $size_bytes = 0;
+        $media_library_url = '';
+        $attachment_url = '';
+
+        if ($attachment_id) {
+            $meta = wp_get_attachment_metadata($attachment_id);
+            if (!empty($meta['filesize'])) {
+                $size_bytes = (int) $meta['filesize'];
+            } else {
+                $file = get_attached_file($attachment_id);
+                if ($file && file_exists($file)) {
+                    $size_bytes = (int) filesize($file);
+                }
+            }
+            $media_library_url = admin_url('post.php?post=' . $attachment_id . '&action=edit');
+            $attachment_url = wp_get_attachment_url($attachment_id) ?: '';
+        }
+
+        if (!$size_bytes && $src) {
+            $size_bytes = $this->fetch_remote_file_size($src);
+        }
+
+        return [
+            'src' => $src,
+            'basename' => basename($path ?: $src),
+            'alt' => $img_data['alt'] ?? '',
+            'width' => $img_data['width'] ?? '',
+            'height' => $img_data['height'] ?? '',
+            'dimensions' => (!empty($img_data['width']) && !empty($img_data['height'])) ? ($img_data['width'] . '×' . $img_data['height']) : '',
+            'loading' => $img_data['loading'] ?? '',
+            'extension' => $extension,
+            'modern_format' => in_array($extension, ['webp', 'avif', 'svg'], true),
+            'size_bytes' => $size_bytes,
+            'size_label' => $this->format_bytes($size_bytes),
+            'attachment_id' => $attachment_id,
+            'attachment_url' => $attachment_url,
+            'media_library_url' => $media_library_url,
+            'is_external' => (bool) $is_external,
+            'source_label' => $attachment_id ? 'media-library' : ($is_external ? 'external' : 'content-url')
+        ];
+    }
+
+    private function fetch_remote_file_size($url) {
+        $head = wp_remote_head($url, ['timeout' => 5, 'sslverify' => false, 'redirection' => 3]);
+        if (is_wp_error($head)) {
+            return 0;
+        }
+
+        $headers = wp_remote_retrieve_headers($head);
+        if (isset($headers['content-length'])) {
+            return (int) $headers['content-length'];
+        }
+
+        return 0;
+    }
+
+    private function format_bytes($bytes) {
+        $bytes = (int) $bytes;
+        if ($bytes <= 0) {
+            return '0 B';
+        }
+
+        $units = ['B', 'KB', 'MB', 'GB'];
+        $power = (int) floor(log($bytes, 1024));
+        $power = min($power, count($units) - 1);
+        $value = $bytes / pow(1024, $power);
+
+        return round($value, $power === 0 ? 0 : 2) . ' ' . $units[$power];
+    }
+    private function analyze_heading_structure_detailed($content, $html = '') {
+        $matches = $this->get_rendered_headings($html);
+        $source = 'front-end';
+
+        if (empty($matches)) {
+            $filtered_content = (string) apply_filters('the_content', $content);
+            $matches = $this->get_rendered_headings($filtered_content);
+            $source = 'filtered-content';
+        }
+
+        if (empty($matches)) {
+            $matches = $this->get_rendered_headings($content);
+            $source = 'editor-content';
+        }
 
         $analysis = [
             'headings' => [],
             'structure_errors' => [],
             'hierarchy_violations' => [],
-            'score' => 100
+            'score' => 100,
+            'source' => $source
         ];
 
         $prev_level = 0;
@@ -165,7 +306,8 @@ class SEOPC_SEO_Analyzer {
 
         foreach ($matches as $match) {
             $level = intval($match[1]);
-            $text = strip_tags($match[2]);
+            $text = trim((string) html_entity_decode(wp_strip_all_tags($match[2]), ENT_QUOTES, get_bloginfo('charset') ?: 'UTF-8'));
+            $text = preg_replace('/\s+/', ' ', $text);
 
             if ($level === 1) {
                 $h1_count++;
@@ -205,7 +347,60 @@ class SEOPC_SEO_Analyzer {
             $analysis['score'] -= 25;
         }
 
+        $analysis['score'] = max(0, (int) $analysis['score']);
+
         return $analysis;
+    }
+
+
+    private function get_rendered_image_tags($html) {
+        $html = $this->prepare_visible_frontend_html($html);
+        if ($html === '') {
+            return [];
+        }
+
+        if (preg_match_all('/<img\b[^>]*>/i', $html, $matches)) {
+            return $matches[0];
+        }
+
+        return [];
+    }
+
+    private function get_rendered_headings($html) {
+        $html = $this->prepare_visible_frontend_html($html);
+        if ($html === '') {
+            return [];
+        }
+
+        if (preg_match_all('/<h([1-6])\b[^>]*>(.*?)<\/h\1>/is', $html, $matches, PREG_SET_ORDER)) {
+            return $matches;
+        }
+
+        return [];
+    }
+
+    private function prepare_visible_frontend_html($html) {
+        if (!is_string($html) || trim($html) === '') {
+            return '';
+        }
+
+        // Prefer the real document body. This avoids counting headings embedded in
+        // the <head>, preload JSON, serialized block data, or other support markup.
+        if (preg_match('/<body\b[^>]*>(.*?)<\/body>/is', $html, $body_match)) {
+            $html = $body_match[1];
+        }
+
+        // Remove containers that are not part of the normal visible DOM scan.
+        // React/headless setups often place a full HTML copy in JSON/script data
+        // and again inside <noscript>; counting those duplicates produces false
+        // multiple-H1 errors even when the rendered page has one visible H1.
+        $html = preg_replace('/<(script|style|template|noscript|svg)\b[^>]*>.*?<\/\1>/is', '', $html);
+
+        if (!is_string($html)) {
+            return '';
+        }
+
+        return trim($html);
     }
 
     private function analyze_accessibility($html, $content) {
@@ -562,22 +757,39 @@ class SEOPC_SEO_Analyzer {
         ];
     }
 
-    private function calculate_overall_score($analysis) {
+    private function build_score_breakdown($analysis) {
         $scores = [
-            $analysis['headings']['score'] ?? 100,
-            $analysis['accessibility']['score'] ?? 100,
-            $analysis['html_semantics']['score'] ?? 100,
-            $analysis['clickability']['score'] ?? 100
+            'headings' => (int) ($analysis['headings']['score'] ?? 100),
+            'accessibility' => (int) ($analysis['accessibility']['score'] ?? 100),
+            'html_semantics' => (int) ($analysis['html_semantics']['score'] ?? 100),
+            'clickability' => (int) ($analysis['clickability']['score'] ?? 100),
         ];
 
-        $image_penalty = count(array_filter($analysis['images']['issues'] ?? [], function($i) {
+        $image_critical_count = count(array_filter($analysis['images']['issues'] ?? [], function($i) {
             return ($i['severity'] ?? '') === 'critical';
-        })) * 5;
+        }));
 
-        $broken_link_penalty = min(20, (int) (($analysis['internal_links']['broken_count'] ?? 0) * 5));
-        $base_score = round(array_sum($scores) / count($scores));
+        $image_penalty = $image_critical_count * 5;
+        $broken_link_count = (int) ($analysis['internal_links']['broken_count'] ?? 0);
+        $broken_link_penalty = min(20, $broken_link_count * 5);
+        $base_score = (int) round(array_sum($scores) / count($scores));
+        $final_score = max(0, $base_score - $image_penalty - $broken_link_penalty);
 
-        return max(0, $base_score - $image_penalty - $broken_link_penalty);
+        return [
+            'components' => $scores,
+            'base_score' => $base_score,
+            'image_critical_count' => $image_critical_count,
+            'image_penalty' => $image_penalty,
+            'broken_link_count' => $broken_link_count,
+            'broken_link_penalty' => $broken_link_penalty,
+            'final_score' => $final_score,
+            'summary' => sprintf(
+                'Base %d from headings/accessibility/semantics/clickability, minus %d for critical image issues and %d for broken links.',
+                $base_score,
+                $image_penalty,
+                $broken_link_penalty
+            ),
+        ];
     }
 
     private function count_critical_issues($analysis) {
