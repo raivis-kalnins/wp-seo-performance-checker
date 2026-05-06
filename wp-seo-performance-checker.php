@@ -3,7 +3,7 @@
  * Plugin Name: WP SEO Performance Checker
  * Plugin URI: /wp-seo-performance-checker
  * Description: Comprehensive SEO analysis, page speed testing, meta tag validation, and sitemap management for WordPress admin.
- * Version: 1.9.0
+ * Version: 1.10.0
  * Author: Raivis Kalnins
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('SEOPC_VERSION', '1.9.0');
+define('SEOPC_VERSION', '1.10.0');
 define('SEOPC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SEOPC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('SEOPC_PLUGIN_BASENAME', plugin_basename(__FILE__));

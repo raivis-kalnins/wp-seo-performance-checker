@@ -30,6 +30,7 @@ class SEOPC_Admin_Menu {
             'sitemap' => __('Sitemap Manager', 'seo-performance-checker'),
             'media-tools' => __('Media Tools', 'seo-performance-checker'),
             'dynamic-overrides' => __('Dynamic Overrides', 'seo-performance-checker'),
+            'meta-import-export' => __('Meta Import / Export', 'seo-performance-checker'),
         ];
     }
 
@@ -75,6 +76,12 @@ class SEOPC_Admin_Menu {
         if ($tab === 'dynamic-overrides' && class_exists('SEOPC_Dynamic_Overrides')) {
             $dynamic_overrides = new SEOPC_Dynamic_Overrides();
             $dynamic_overrides->render_admin_page();
+            return;
+        }
+
+        if ($tab === 'meta-import-export' && class_exists('SEOPC_Meta_Import_Export')) {
+            $meta_import_export = new SEOPC_Meta_Import_Export();
+            $meta_import_export->render_admin_page();
             return;
         }
 
