@@ -28,6 +28,7 @@ class SEOPC_Plugin {
         new SEOPC_Media_Tools();
         new SEOPC_Dynamic_Overrides();
         new SEOPC_Meta_Import_Export();
+        new SEOPC_Frontend_Toolkit();
         
         // Enqueue assets
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);

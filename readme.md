@@ -1,10 +1,166 @@
 # SEO Performance Checker (Enhanced)
 
-A WordPress plugin for SEO auditing, image diagnostics, schema checks, Google Analytics 4 and Search Console reporting, internal linking guidance, competitor benchmarking, and practical media cleanup tools inside WordPress admin.
+A WordPress website-growth toolkit for SEO auditing, visual sitemap QA, social brand checks, design QA, free-media search, image/video editing and optimization, schema checks, reporting, internal linking guidance, competitor benchmarking, and agency workflows.
 
 ## Version
 
-**v1.10.0**
+### 2.5.4
+- Fixed false multiple-H1 reports by counting only literal visible-body `<h1>` elements for SEO.
+- ARIA `role="heading" aria-level="1"` elements are now tracked separately instead of being added to the H1 total.
+- Headings inside `template`, `noscript`, `svg`, `script`, and `style` support markup no longer inflate heading counts.
+- Bumped the website-audit cache namespace so previously cached incorrect H1 totals are not reused.
+
+### 2.5.3
+- Fixed the front-end lock regression from v2.5.2: fresh activations could still store the legacy `SEO@password` hash even though the documented password was `Seo@test`.
+- Added an automatic migration and login self-repair so `Seo@test` unlocks affected installations without requiring a database/settings reset.
+- New activations now seed `Seo@test` correctly.
+
+### 2.5.2
+- Enabled front-end password protection and migrated the agency password to `Seo@test`.
+- Added no-key WordPress.org Photo Directory search/download alongside Openverse/Wikimedia/Iconify.
+- Replaced the audit PDF CDN dependency with an internal dependency-free vector PDF writer.
+- Added detailed per-image SEO issue rows and CSV export.
+
+
+**v2.5.4**
+
+
+
+## What is new in v2.5.1
+
+- Free Media now uses AJAX **Load more** instead of page navigation. Connected providers are requested in parallel, results append in place, and faster/lower-resolution previews are used first when providers expose them.
+- Expanded the free-media directory with Picjumbo, Kaboompics, Gratisography, Nappy, Foodiesfeed, ISO Republic, Life of Pix, Burst, StockSnap, Reshot, Mixkit, Coverr, SVG Repo, unDraw, Freepik and Rawpixel discovery links.
+- Added a direct settings shortcut when Pexels/Pixabay/Unsplash are not connected, so agency users can enable higher-quality API-backed photography.
+- Sitemap discovery now avoids probing redundant common sitemap roots after a working root is found, uses shorter bounded retries, and turns cURL timeout noise into a clear skipped-source warning while continuing the crawl.
+- Increased sitemap and social-audit typography, spacing and card readability.
+- Design QA now includes **Reload preview**, **Refresh snapshot**, and **Open live page** controls.
+- Image Studio gained rotate-90, fit-to-canvas, grayscale, sepia and hue controls plus larger buttons and clearer adjustment panels.
+- Image Optimizer now reports original size, optimized size, KB/MB saved and percentage saved, and defaults away from AVIF when the browser cannot encode it.
+- Replaced CSS-triangle select arrows with a fixed SVG chevron to stop dropdown arrows shifting at different zoom/font metrics.
+
+- Replaced the screenshot-based website-audit PDF exporter with a **direct vector jsPDF report engine** so client PDFs contain the audit data instead of an empty captured page. The PDF now draws branded scorecards, score bars, page/SEO details, Lighthouse metrics, opportunities, diagnostics, category findings, security headers, and page numbers directly into A4 pages.
+- Added richer **web-report visual analytics** for issue severity, resource mix and heading structure alongside the existing Lighthouse/Core Web Vitals dashboard.
+- Deepened **Sitemap Intelligence** with resilient sitemap retries, longer timeouts, up to 1,000 URLs, sitemap response-health data, URL-family distribution, freshness buckets, scan progress, better CSV columns and page-level issue cards. Partial sitemap failures no longer stop alternate sitemap discovery.
+- Deepened **Social / Brand Footprint** checks with eight-network coverage, profile-handle extraction, public profile metadata checks, per-profile quality where verification is possible, blocked-platform handling, schema/sameAs consistency and clearer profile/share recommendations.
+- Reworked **Design QA preview** to use a server-fetched, script-disabled sandbox snapshot instead of a cross-origin iframe. This avoids the broken grey preview caused by X-Frame-Options/CSP while keeping automated responsive/layout checks and the screenshot pixel ruler.
+- Expanded **Image Studio** with grouped layer controls, flip/centre/reset tools, brightness, contrast, saturation and blur, improved crop controls, transparent/solid background export, clipboard PNG and cleaner responsive panel styling.
+- Improved **Free Media** ranking so higher-resolution Pexels, Pixabay and Unsplash results are not buried behind lower-quality sources when their API keys are configured. Added searchable Iconify design assets and a larger integrated source directory including Picjumbo, Burst, StockSnap, Reshot, Mixkit, Coverr, SVG Repo, unDraw and Freepik search links.
+- Replaced the letter/Unicode brand and active-tab marks with a consistent inline-SVG icon system and refined green/purple active states.
+- Preserved the v2.4 Lighthouse coverage for **Performance, Accessibility, Best Practices, SEO and Agentic Browsing**. Agentic category details automatically surface WebMCP and related Lighthouse findings when returned by the current PageSpeed endpoint.
+
+## What is new in v2.4.0
+
+- Rebuilt the **website audit report** into a client-ready web dashboard with a branded report cover, overall snapshot, score gauges, richer score bars, Lighthouse metric cards, opportunities, diagnostics and per-category audit panels.
+- Added a direct **Download PDF** action using an A4-optimized report layout with page-safe cards, consistent typography, report footer and page numbering. The existing browser Print option remains available.
+- Expanded PageSpeed/Lighthouse coverage to request **Performance, Accessibility, Best Practices, SEO and the new Agentic Browsing category**. The Agentic request gracefully falls back when Google has not enabled the category on a particular PageSpeed API node.
+- Added detailed Lighthouse category audit data so the report can show the actual failed/partial checks behind each category rather than scores alone.
+- Added lab metric presentation plus available Chrome UX Report field metrics for LCP, INP, CLS, FCP and TTFB.
+- Added richer performance **Opportunities** and **Diagnostics** sections for both the on-screen audit and exported PDF.
+
+## What is new in v2.3.0
+
+- Rebuilt **Sitemap** as an interactive URL relationship map with expandable parent/child boxes, per-page scan buttons, inline SEO/HTTP issue details, sitemap-file chips, 100/250/500 URL map sizes and CSV export.
+- Expanded **Social** into a brand-footprint audit: linked profile discovery, Organization `sameAs` comparison, richer share-preview checks, automated profile URL reachability checks where networks permit them, and clearer recommendations when a platform blocks bot verification.
+- Reworked **Design QA** so it tests `X-Frame-Options`/CSP before rendering a preview instead of showing a broken iframe. It now adds automated responsive-layout risk checks, image-dimension/layout-shift checks, form-labelling checks, fixed-width/tiny-text diagnostics and a more accurate screenshot pixel ruler.
+- Rebuilt **Image Studio** around layers. Add images and text, reorder/duplicate/hide layers, drag selected layers, control opacity/scale/rotation/blend modes, remove simple flat backgrounds with tolerance, crop output and export PNG/JPG/WebP/AVIF at selectable quality/size.
+- Merged the old resource-library concept into **Free Media**. Connected Openverse/Wikimedia/Pexels/Pixabay/Unsplash providers can be filtered and searched in-tool, with download/optimize/edit actions; popular direct-search sources such as Picjumbo, Burst, StockSnap, Reshot, Mixkit, Coverr and SVG Repo are shown in the same workspace when no suitable public API is available.
+- Added provider-aware media AJAX caching/filtering and surfaced which API providers are actually configured.
+
+## What is new in v2.2.1
+
+- Reworked all toolkit text, URL, search, number and select controls with rounded 14–15px corners, green focus rings, cleaner placeholders and stronger theme isolation so WordPress/theme styles cannot make inputs look plain.
+- Added a custom green range slider with a filled track, polished thumb and live value pill for image quality and crop controls.
+- Added an optional **Fresh / skip cache** AJAX switch to Website Audit, DNS & Server, Sitemap and Social checks. When enabled, the server bypasses temporary transients and runs a new check without reloading the page.
+- AJAX requests now explicitly use no-store semantics and the `X-Requested-With` header.
+- URL/search fields now use better browser input modes and autocomplete/spellcheck behaviour.
+
+## What is new in v2.2.0
+
+### Agency growth workspace redesign
+
+The public toolkit now uses a cleaner green / deep-ink visual system, denser but friendlier navigation, polished input controls, responsive cards, chart-style score summaries, and print-ready client reporting.
+
+### More reliable H1 detection
+
+H1 checks now combine DOM headings, ARIA level-one headings, and a raw-markup fallback. Pages that appear client-rendered or protected by an anti-bot interstitial are marked as **unverified** instead of incorrectly reporting a confirmed missing H1.
+
+### Visual sitemap and multi-page QA
+
+A new **Sitemap** tab discovers robots.txt sitemap declarations and common WordPress sitemap paths, displays sitemap/index structure visually, lists discovered URLs, and can quick-audit up to 25 pages with SEO score, HTTP status, and issue counts. Sitemap responses use temporary cache and can be exported to CSV.
+
+### Social media and share readiness
+
+A new **Social** tab checks Open Graph and X/Twitter cards, detects social profiles linked by the website, produces a share-readiness score, and gives practical recommendations for improving branded link previews and profile connections.
+
+### Reports and charts
+
+Website audits now include a lightweight score chart plus CSV and JSON export. The **PDF / Print report** action switches to a print-friendly agency report layout that browsers can save as PDF.
+
+### Design QA and media workflow
+
+New tools include:
+- responsive website iframe preview at common breakpoints
+- screenshot pixel measurement with an optional 8px spacing grid
+- lightweight image studio for crop, rotate, flip and simple background transparency
+- batch JPG / PNG / WebP / AVIF browser conversion
+- DOCX to PDF browser conversion (document is not uploaded to WordPress)
+- expanded free-media resource directory for photos, video, SVG and illustration sources
+
+### Larger agency file limits
+
+The media proxy limit can now be configured up to 500 MB. Browser-local image/video processing is not constrained by the WordPress upload limit. HTML audit fetch limits default to 6 MB.
+
+## What is new in v2.1.3
+
+### Google-style SEO score colours
+
+Audit score cards now use familiar traffic-light thresholds: **green for 90–100**, **amber for 50–89**, and **red for 0–49**. Each score has a circular progress gauge plus a text label, so the result does not rely on colour alone.
+
+### SEO health-check indicators
+
+The website audit now shows individual green, amber, or red cards for H1 usage, title length, meta-description length, canonical URL, image alt attributes, heading hierarchy, indexability, and HTTP response. H1 is red unless the page contains exactly one H1. Heading-count boxes also highlight H1 and H2 status directly.
+
+## What is new in v2.1.2
+
+### Twenty Twenty-Five full-screen layout fix
+
+The full-screen shortcode layout now stays at `left: 0` and uses normal 100% widths. It no longer depends on `left: 50%`, negative viewport margins, or `calc(50% - 50vw)`. Global block-theme padding and constrained wrappers are removed only on toolkit pages, including Twenty Twenty-Five.
+
+The toolkit shell uses a viewport-height flex layout, so the privacy footer remains at the bottom of the screen when a tab has little or no result content.
+
+### Cleaner, wider search controls
+
+URL, domain, and free-media search forms now give the primary text field more width. Inputs and buttons use a smaller 8px radius, consistent borders, clearer focus states, and full-width mobile stacking.
+
+## What is new in v2.1.0
+
+### Public by default, optional password protection
+
+The front-end toolkit is public by default. Administrators can enable password protection from **Settings → SEO Checker → Front-end Toolkit**. The current password remains visible and editable on that administrator screen.
+
+### Full-width and full-height application mode
+
+The shortcode can fill the browser width and at least the viewport height. A separate setting can hide the theme header and footer only on pages containing the toolkit shortcode.
+
+### Front-end shortcode toolkit
+
+Add either shortcode to a WordPress page:
+
+```text
+[seopc_toolkit]
+[seo_toolkit]
+```
+
+The interface uses WordPress' bundled React package (`wp-element`) and Ajax endpoints, so no separate React CDN or front-end build step is required.
+
+### Main capabilities
+
+- live SEO, heading, resource, security-header, and PageSpeed auditing
+- DNS, hosting, HTTP, TCP, TLS, and server-information checks
+- client-side image conversion and optimization
+- client-side WebM video compression
+- openly licensed image and video search through enabled providers
+- short transient caching without adding downloaded media to the WordPress Media Library
 
 ## What is new in v1.10.0
 
