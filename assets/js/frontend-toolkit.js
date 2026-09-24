@@ -567,46 +567,327 @@
     }
 
     async function downloadAuditPdf(audit, psi) {
-        // Dependency-free vector PDF writer. Keeping this inside the plugin avoids CDN/CSP failures.
-        var host='website';try{host=new URL(audit.url).hostname;}catch(e){}
-        function clean(v){return safeText(v,'').replace(/[\\()]/g,function(m){return '\\'+m;}).replace(/[–—·•→↗✓]/g,'-').replace(/[^\x20-\x7E]/g,'?');}
-        function raw(v){return safeText(v,'').replace(/[–—·•→↗✓]/g,'-').replace(/[^\x20-\x7E]/g,'?');}
-        function wrap(text,max){var words=raw(text).split(/\s+/),out=[],line='';words.forEach(function(w){var n=line?line+' '+w:w;if(n.length>max&&line){out.push(line);line=w;}else line=n;});if(line)out.push(line);return out.length?out:[''];}
-        var pages=[],ops=[],y=790, pageNo=0;
-        function esc(t){return clean(t);}
-        function page(){if(ops.length)pages.push(ops.join('\n'));ops=[];pageNo++;y=790;ops.push('0.08 0.24 0.20 rg 0 782 595 60 re f');ops.push('1 1 1 rg BT /F2 17 Tf 36 812 Td ('+esc('Website Growth Toolkit')+') Tj ET');ops.push('0.78 0.93 0.86 rg BT /F1 8 Tf 36 796 Td ('+esc(host+' - client website audit')+') Tj ET');}
-        function ensure(h){if(y-h<42)page();}
-        function text(t,x,size,bold,color){size=size||9;color=color||'0.10 0.22 0.19';ops.push(color+' rg BT /'+(bold?'F2':'F1')+' '+size+' Tf '+(x||36)+' '+y+' Td ('+esc(t)+') Tj ET');y-=size+4;}
-        function para(t,size){var lines=wrap(t,size&&size<=8?102:88);ensure(lines.length*(size+3)+4);lines.forEach(function(line){text(line,44,size||8,false,'0.30 0.38 0.35');});y-=2;}
-        function title(t,kicker){ensure(32);if(kicker)text(kicker.toUpperCase(),36,7,true,'0.05 0.50 0.36');text(t,36,14,true);ops.push('0.86 0.91 0.89 RG 36 '+(y+4)+' m 559 '+(y+4)+' l S');y-=5;}
-        function bar(label,score){score=Number(score);if(isNaN(score))return;ensure(19);text(label,36,8,true);var yy=y+5;var pct=Math.max(0,Math.min(100,score));ops.push('0.90 0.94 0.92 rg 170 '+yy+' 330 7 re f');var c=score>=90?'0.07 0.64 0.40':score>=50?'0.95 0.60 0.05':'0.92 0.25 0.25';ops.push(c+' rg 170 '+yy+' '+(330*pct/100)+' 7 re f');ops.push('0.10 0.22 0.19 rg BT /F2 8 Tf 515 '+(yy-1)+' Td ('+Math.round(score)+') Tj ET');y-=7;}
-        function kv(k,v){var lines=wrap(v,70);ensure(17+Math.max(0,lines.length-1)*10);ops.push('0.97 0.98 0.97 rg 36 '+(y-4)+' 523 '+(14+Math.max(0,lines.length-1)*10)+' re f');ops.push('0.38 0.47 0.43 rg BT /F2 7 Tf 44 '+y+' Td ('+esc(k)+') Tj ET');lines.forEach(function(line,i){ops.push('0.10 0.22 0.19 rg BT /F1 8 Tf 165 '+(y-i*10)+' Td ('+esc(line)+') Tj ET');});y-=16+Math.max(0,lines.length-1)*10;}
-        function bullets(items,limit){(items||[]).slice(0,limit||20).forEach(function(it){var t=typeof it==='string'?it:(it.title||it.description||'');var lines=wrap(t,82);ensure(lines.length*11+4);ops.push('0.05 0.50 0.36 rg 42 '+(y+2)+' 4 4 re f');lines.forEach(function(line,i){ops.push('0.10 0.22 0.19 rg BT /F1 8 Tf 52 '+(y-i*10)+' Td ('+esc(line)+') Tj ET');});y-=lines.length*10+5;});}
-        page();
-        text(host,36,24,true,'1 1 1'); y-=6;
-        text('SEO, performance, accessibility, best practices, agent readiness and technical quality.',36,9,false,'0.78 0.93 0.86');y-=18;
-        var overall=reportOverallScore(audit,psi);title('Executive scorecard','Summary');bar('Overall',overall);bar('SEO',audit.scores&&audit.scores.seo);bar('Quick performance',audit.scores&&audit.scores.quick_performance);bar('Security headers',audit.scores&&audit.scores.security_headers);Object.entries(psi&&psi.categories||{}).forEach(function(e){bar(categoryLabel(e[0]),e[1]);});
-        title('Page summary','Technical');var seo=audit.seo||{},resp=audit.response||{},res=audit.resources||{};[['Tested URL',audit.final_url||audit.url],['HTTP status',resp.status],['HTML transfer',formatBytes(resp.html_bytes)],['Estimated requests',res.estimated_requests],['Images',res.images],['Scripts / styles',(res.scripts||0)+' / '+(res.stylesheets||0)],['Server',resp.server],['Compression',resp.content_encoding||'Not detected'],['Canonical',seo.canonical||'Missing']].forEach(function(r){kv(r[0],r[1]);});
-        var checks=(seo.checks||[]).length?seo.checks:fallbackSeoChecks(seo,resp);title('SEO health checks','SEO');checks.slice(0,24).forEach(function(c){var prefix=(c.tone==='bad'?'PRIORITY: ':c.tone==='warn'?'REVIEW: ':'GOOD: ');bullets([prefix+(c.label||c.title||'Check')+(c.detail||c.message?' - '+(c.detail||c.message):'')],1);});
-        if((seo.issues||[]).length){title('Priority fixes','Action plan');bullets(seo.issues,30);}
-        var imageIssues=(seo.images&&seo.images.issues)||[];if(imageIssues.length){title('Image issues','Media QA');imageIssues.slice(0,50).forEach(function(it){bullets([(it.issues||[]).join(', ')+' - '+(it.url||'image')],1);});}
-        if(psi){title('Lighthouse metrics','Google');Object.values(psi.metrics||{}).forEach(function(m){kv(m.title,m.display_value||m.score);});if((psi.opportunities||[]).length){title('Performance opportunities','Lighthouse');bullets(psi.opportunities.map(function(x){return x.title+(x.display_value?' - '+x.display_value:'');}),18);}if((psi.diagnostics||[]).length){title('Diagnostics','Lighthouse');bullets(psi.diagnostics.map(function(x){return x.title+(x.display_value?' - '+x.display_value:'');}),25);}Object.entries(psi.category_details||{}).forEach(function(e){title(e[1].title||categoryLabel(e[0]),'Category detail');bar('Score',e[1].score);bullets((e[1].audits||[]).filter(function(a){return a.score!==null&&a.score!==undefined&&a.score<100;}).map(function(a){return a.title+(a.display_value?' - '+a.display_value:'');}),18);});}
-        title('Security headers','Security');Object.entries(audit.security_headers||{}).forEach(function(e){kv(e[0],e[1]||'Missing');});
-        if(ops.length)pages.push(ops.join('\n'));
-        // Add page footer now that page count is known.
-        pages=pages.map(function(content,i){return content+'\n0.86 0.91 0.89 RG 36 28 m 559 28 l S\n0.38 0.47 0.43 rg BT /F1 7 Tf 36 17 Td ('+esc('Website Growth Toolkit - '+host)+') Tj ET\nBT /F1 7 Tf 515 17 Td ('+esc('Page '+(i+1)+' / '+pages.length)+') Tj ET';});
-        var objects=[];function add(body){objects.push(body);return objects.length;}
-        var catalog=add('<< /Type /Catalog /Pages 2 0 R >>');
-        var pagesObj=add('PAGES_PLACEHOLDER');
-        var font1=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-        var font2=add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
-        var pageRefs=[];
-        pages.forEach(function(content){var stream=add('<< /Length '+content.length+' >>\nstream\n'+content+'\nendstream');var p=add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 '+font1+' 0 R /F2 '+font2+' 0 R >> >> /Contents '+stream+' 0 R >>');pageRefs.push(p+' 0 R');});
-        objects[1]='<< /Type /Pages /Kids ['+pageRefs.join(' ')+'] /Count '+pageRefs.length+' >>';
-        var out='%PDF-1.4\n%WGT\n', offsets=[0];objects.forEach(function(body,i){offsets.push(out.length);out+=(i+1)+' 0 obj\n'+body+'\nendobj\n';});var xref=out.length;out+='xref\n0 '+(objects.length+1)+'\n0000000000 65535 f \n';for(var i=1;i<offsets.length;i++)out+=String(offsets[i]).padStart(10,'0')+' 00000 n \n';out+='trailer\n<< /Size '+(objects.length+1)+' /Root '+catalog+' 0 R >>\nstartxref\n'+xref+'\n%%EOF';
-        downloadBlob(new Blob([out],{type:'application/pdf'}),'website-audit-'+host.replace(/[^a-z0-9.-]+/gi,'-')+'.pdf');
-    }
+        // Dependency-free vector PDF report. Designed for predictable A4 alignment without CDN libraries.
+        var host = 'website';
+        try { host = new URL(audit.url).hostname; } catch (e) {}
 
+        var PW = 595, PH = 842, ML = 36, MR = 36, BODY_W = PW - ML - MR;
+        var TOP = 748, BOTTOM = 44;
+        var pages = [], ops = [], y = TOP, pageNo = 0;
+
+        function ascii(v) {
+            return safeText(v, '').replace(/[–—·•→↗✓]/g, '-').replace(/[^\x20-\x7E]/g, '?');
+        }
+        function esc(v) {
+            return ascii(v).replace(/[\\()]/g, function (m) { return '\\' + m; });
+        }
+        function fmt(n) { return Math.round(Number(n || 0) * 100) / 100; }
+        function textWidth(text, size, bold) {
+            var s = ascii(text), units = 0;
+            for (var i = 0; i < s.length; i++) {
+                var ch = s[i];
+                if (/[MW@%&]/.test(ch)) units += 0.82;
+                else if (/[ilI1\.,'`\|:;]/.test(ch)) units += 0.28;
+                else if (/[A-Z0-9]/.test(ch)) units += 0.58;
+                else units += 0.50;
+            }
+            return units * size * (bold ? 1.04 : 1);
+        }
+        function splitToken(token, maxWidth, size, bold) {
+            var out = [], part = '';
+            for (var i = 0; i < token.length; i++) {
+                var next = part + token[i];
+                if (part && textWidth(next, size, bold) > maxWidth) { out.push(part); part = token[i]; }
+                else part = next;
+            }
+            if (part) out.push(part);
+            return out;
+        }
+        function wrap(text, maxWidth, size, bold) {
+            var source = ascii(text).replace(/\s+/g, ' ').trim();
+            if (!source) return [''];
+            var tokens = source.split(' '), out = [], line = '';
+            tokens.forEach(function (token) {
+                var pieces = textWidth(token, size, bold) > maxWidth ? splitToken(token, maxWidth, size, bold) : [token];
+                pieces.forEach(function (piece) {
+                    var next = line ? line + ' ' + piece : piece;
+                    if (line && textWidth(next, size, bold) > maxWidth) { out.push(line); line = piece; }
+                    else line = next;
+                });
+            });
+            if (line) out.push(line);
+            return out.length ? out : [''];
+        }
+        function fillRect(x, yy, w, h, color) { ops.push(color + ' rg ' + fmt(x) + ' ' + fmt(yy) + ' ' + fmt(w) + ' ' + fmt(h) + ' re f'); }
+        function strokeLine(x1, y1, x2, y2, color, width) { ops.push(color + ' RG ' + (width || 1) + ' w ' + fmt(x1) + ' ' + fmt(y1) + ' m ' + fmt(x2) + ' ' + fmt(y2) + ' l S'); }
+        function at(t, x, yy, size, bold, color) {
+            ops.push((color || '0.08 0.20 0.17') + ' rg BT /' + (bold ? 'F2' : 'F1') + ' ' + (size || 9) + ' Tf ' + fmt(x) + ' ' + fmt(yy) + ' Td (' + esc(t) + ') Tj ET');
+        }
+        function linesAt(lines, x, yy, size, bold, color, leading) {
+            leading = leading || size + 3;
+            lines.forEach(function (line, i) { at(line, x, yy - i * leading, size, bold, color); });
+            return lines.length * leading;
+        }
+        function startPage() {
+            if (ops.length) pages.push(ops.join('\n'));
+            ops = []; pageNo += 1;
+            fillRect(0, 776, PW, 66, '0.035 0.20 0.16');
+            fillRect(0, 776, 7, 66, '0.07 0.63 0.42');
+            at('Website Growth Toolkit', ML, 812, 15, true, '1 1 1');
+            at(host + ' - client website audit', ML, 793, 8, false, '0.76 0.92 0.85');
+            at('WEBSITE AUDIT', 486, 812, 7, true, '0.76 0.92 0.85');
+            y = TOP;
+        }
+        function ensure(h) { if (y - h < BOTTOM) startPage(); }
+        function section(titleText, kicker, subtitle) {
+            var subtitleLines = subtitle ? wrap(subtitle, BODY_W, 7.5, false) : [];
+            var need = 34 + subtitleLines.length * 10;
+            ensure(need);
+            at((kicker || '').toUpperCase(), ML, y, 6.7, true, '0.05 0.52 0.37'); y -= 14;
+            at(titleText, ML, y, 15, true, '0.07 0.20 0.17'); y -= 10;
+            strokeLine(ML, y, PW - MR, y, '0.83 0.89 0.86', 0.8); y -= 13;
+            if (subtitleLines.length) { y -= linesAt(subtitleLines, ML, y + 4, 7.5, false, '0.36 0.45 0.41', 10); y -= 2; }
+        }
+        function hero(overall) {
+            ensure(94);
+            var h = 82, yy = y - h + 8;
+            fillRect(ML, yy, BODY_W, h, '0.955 0.978 0.967');
+            fillRect(ML, yy, 6, h, '0.05 0.52 0.37');
+            at('CLIENT WEBSITE AUDIT', ML + 18, y - 10, 6.5, true, '0.05 0.52 0.37');
+            var hostLines = wrap(host, 350, 18, true).slice(0, 2);
+            linesAt(hostLines, ML + 18, y - 30, 18, true, '0.07 0.20 0.17', 20);
+            var tested = ascii(audit.final_url || audit.url || '');
+            var testedLines = wrap(tested, 350, 7.5, false).slice(0, 2);
+            linesAt(testedLines, ML + 18, y - 30 - hostLines.length * 20 - 5, 7.5, false, '0.38 0.47 0.43', 10);
+            fillRect(472, yy + 12, 70, 58, '1 1 1');
+            at(overall === null || overall === undefined ? '-' : String(Math.round(overall)), 491, yy + 40, 22, true, scoreColor(overall));
+            at('OVERALL', 487, yy + 23, 6.5, true, '0.38 0.47 0.43');
+            y = yy - 16;
+        }
+        function scoreColor(score) {
+            score = Number(score);
+            if (isNaN(score)) return '0.38 0.47 0.43';
+            if (score >= 90) return '0.05 0.63 0.38';
+            if (score >= 50) return '0.95 0.56 0.04';
+            return '0.90 0.25 0.25';
+        }
+        function scoreGrid(items) {
+            items = (items || []).filter(function (it) { return it && it.value !== null && it.value !== undefined && !isNaN(Number(it.value)); });
+            if (!items.length) return;
+            var cols = 4, gap = 8, w = (BODY_W - gap * (cols - 1)) / cols, cardH = 58;
+            for (var i = 0; i < items.length; i += cols) {
+                ensure(cardH + 12);
+                var yy = y - cardH;
+                items.slice(i, i + cols).forEach(function (it, idx) {
+                    var x = ML + idx * (w + gap), score = Math.max(0, Math.min(100, Math.round(Number(it.value))));
+                    fillRect(x, yy, w, cardH, '0.975 0.985 0.980');
+                    fillRect(x, yy + cardH - 3, w, 3, scoreColor(score));
+                    at(String(score), x + 12, yy + 29, 18, true, scoreColor(score));
+                    var labelLines = wrap(it.label, w - 55, 7, true).slice(0, 2);
+                    linesAt(labelLines, x + 55, yy + 35, 7, true, '0.10 0.22 0.19', 9);
+                    at('/100', x + 13, yy + 17, 5.5, false, '0.45 0.52 0.49');
+                });
+                y = yy - 10;
+            }
+        }
+        function kvGrid(rows) {
+            var gap = 9, w = (BODY_W - gap) / 2;
+            for (var i = 0; i < rows.length; i += 2) {
+                var pair = rows.slice(i, i + 2), heights = pair.map(function (r) {
+                    var valueLines = wrap(r[1], w - 18, 7.5, false);
+                    return Math.max(42, 26 + valueLines.length * 9);
+                });
+                var h = Math.max.apply(null, heights);
+                ensure(h + 9);
+                var yy = y - h;
+                pair.forEach(function (r, idx) {
+                    var x = ML + idx * (w + gap);
+                    fillRect(x, yy, w, h, '0.967 0.978 0.973');
+                    at(String(r[0]).toUpperCase(), x + 10, yy + h - 13, 6.2, true, '0.39 0.48 0.44');
+                    var valueLines = wrap(r[1], w - 20, 7.7, false);
+                    linesAt(valueLines, x + 10, yy + h - 27, 7.7, false, '0.08 0.20 0.17', 9.5);
+                });
+                y = yy - 8;
+            }
+        }
+        function statusList(items, limit) {
+            (items || []).slice(0, limit || 30).forEach(function (item) {
+                var tone = item.tone || (item.pass === true ? 'good' : (item.pass === false ? 'bad' : 'warn'));
+                var label = item.label || item.title || 'Check';
+                var detail = item.detail || item.message || '';
+                var labelLines = wrap(label, BODY_W - 96, 8, true);
+                var detailLines = detail ? wrap(detail, BODY_W - 96, 7.3, false) : [];
+                var h = Math.max(38, 22 + labelLines.length * 10 + detailLines.length * 9);
+                ensure(h + 7);
+                var yy = y - h;
+                fillRect(ML, yy, BODY_W, h, '0.978 0.984 0.981');
+                fillRect(ML, yy, 5, h, tone === 'bad' ? '0.90 0.25 0.25' : tone === 'warn' ? '0.95 0.56 0.04' : '0.05 0.63 0.38');
+                at(tone === 'bad' ? 'PRIORITY' : tone === 'warn' ? 'REVIEW' : 'GOOD', ML + 14, yy + h - 15, 6.2, true, tone === 'bad' ? '0.78 0.18 0.18' : tone === 'warn' ? '0.72 0.43 0.03' : '0.04 0.48 0.29');
+                linesAt(labelLines, ML + 76, yy + h - 15, 8, true, '0.08 0.20 0.17', 10);
+                if (detailLines.length) linesAt(detailLines, ML + 76, yy + h - 16 - labelLines.length * 10, 7.3, false, '0.35 0.44 0.40', 9);
+                y = yy - 7;
+            });
+        }
+        function callouts(items, tone, limit) {
+            (items || []).slice(0, limit || 30).forEach(function (item) {
+                var text = typeof item === 'string' ? item : (item.title || item.description || '');
+                var lines = wrap(text, BODY_W - 34, 7.7, false), h = Math.max(31, 18 + lines.length * 9);
+                ensure(h + 7);
+                var yy = y - h;
+                var bg = tone === 'bad' ? '0.995 0.952 0.948' : tone === 'warn' ? '0.997 0.977 0.910' : '0.953 0.985 0.968';
+                var fg = tone === 'bad' ? '0.75 0.18 0.18' : tone === 'warn' ? '0.66 0.39 0.02' : '0.04 0.47 0.28';
+                fillRect(ML, yy, BODY_W, h, bg); fillRect(ML, yy, 5, h, fg);
+                linesAt(lines, ML + 16, yy + h - 17, 7.7, false, '0.14 0.25 0.22', 9);
+                y = yy - 7;
+            });
+        }
+        function imageIssueList(items, limit) {
+            (items || []).slice(0, limit || 60).forEach(function (it, idx) {
+                var issues = (it.issues || []).join(', ') || 'Review image';
+                var issueLines = wrap(issues, BODY_W - 30, 8, true);
+                var urlLines = wrap(it.url || 'image', BODY_W - 30, 6.8, false);
+                var h = 22 + issueLines.length * 10 + urlLines.length * 8;
+                ensure(h + 7);
+                var yy = y - h;
+                fillRect(ML, yy, BODY_W, h, idx % 2 ? '0.978 0.984 0.981' : '0.988 0.992 0.990');
+                at(String(idx + 1).padStart(2, '0'), ML + 10, yy + h - 16, 6.4, true, '0.05 0.52 0.37');
+                linesAt(issueLines, ML + 36, yy + h - 16, 8, true, '0.10 0.22 0.19', 10);
+                linesAt(urlLines, ML + 36, yy + h - 18 - issueLines.length * 10, 6.8, false, '0.38 0.47 0.43', 8);
+                y = yy - 5;
+            });
+        }
+        function metricGrid(metrics) {
+            var list = Object.values(metrics || {});
+            if (!list.length) return;
+            var cols = 3, gap = 8, w = (BODY_W - gap * 2) / 3, h = 48;
+            for (var i = 0; i < list.length; i += cols) {
+                ensure(h + 9);
+                var yy = y - h;
+                list.slice(i, i + cols).forEach(function (m, idx) {
+                    var x = ML + idx * (w + gap);
+                    fillRect(x, yy, w, h, '0.967 0.978 0.973');
+                    at(ascii(m.display_value || m.score || '-'), x + 10, yy + 25, 12, true, '0.05 0.52 0.37');
+                    var ls = wrap(m.title || 'Metric', w - 20, 6.6, true).slice(0, 2);
+                    linesAt(ls, x + 10, yy + 13, 6.6, true, '0.25 0.35 0.31', 8);
+                });
+                y = yy - 8;
+            }
+        }
+        function securityTable(data) {
+            var entries = Object.entries(data || {});
+            entries.forEach(function (entry, idx) {
+                ensure(21);
+                var yy = y - 18;
+                fillRect(ML, yy, BODY_W, 18, idx % 2 ? '0.978 0.984 0.981' : '0.988 0.992 0.990');
+                at(entry[0], ML + 10, yy + 6, 7.0, true, '0.35 0.44 0.40');
+                var value = entry[1] || 'Missing';
+                at(value, ML + 260, yy + 6, 7.2, false, value === 'Missing' ? '0.78 0.18 0.18' : '0.08 0.20 0.17');
+                y = yy - 2;
+            });
+        }
+
+        startPage();
+        var overall = reportOverallScore(audit, psi);
+        hero(overall);
+        section('Executive scorecard', 'Summary', 'A client-ready view of search visibility, technical health and Lighthouse quality signals.');
+        var scoreItems = [
+            { label: 'Overall', value: overall },
+            { label: 'SEO', value: audit.scores && audit.scores.seo },
+            { label: 'Quick performance', value: audit.scores && audit.scores.quick_performance },
+            { label: 'Security headers', value: audit.scores && audit.scores.security_headers }
+        ];
+        Object.entries(psi && psi.categories || {}).forEach(function (e) { scoreItems.push({ label: categoryLabel(e[0]), value: e[1] }); });
+        scoreGrid(scoreItems);
+
+        var seo = audit.seo || {}, resp = audit.response || {}, res = audit.resources || {};
+        section('Page summary', 'Technical', 'Core response, resource and canonical information from the audited page.');
+        kvGrid([
+            ['Tested URL', audit.final_url || audit.url], ['HTTP status', resp.status],
+            ['HTML transfer', formatBytes(resp.html_bytes)], ['Estimated requests', res.estimated_requests],
+            ['Images', res.images], ['Scripts / styles', (res.scripts || 0) + ' / ' + (res.stylesheets || 0)],
+            ['Server', resp.server], ['Compression', resp.content_encoding || 'Not detected'],
+            ['Canonical', seo.canonical || 'Missing'], ['Generated', new Date().toLocaleString()]
+        ]);
+
+        var checks = (seo.checks || []).length ? seo.checks : fallbackSeoChecks(seo, resp);
+        ensure(120);
+        section('SEO health checks', 'SEO', 'Green items are healthy, amber items need review, and red items are priority fixes.');
+        statusList(checks, 28);
+
+        if ((seo.issues || []).length) {
+            ensure(90);
+            section('Priority fixes', 'Action plan', 'Resolve the highest-impact on-page and technical findings first.');
+            callouts(seo.issues, 'bad', 35);
+        }
+
+        var imageIssues = (seo.images && seo.images.issues) || [];
+        if (imageIssues.length) {
+            ensure(105);
+            section('Image issues', 'Media QA', 'Each affected asset is listed with its exact issue and URL for developer handoff.');
+            imageIssueList(imageIssues, 80);
+        }
+
+        if (psi) {
+            if (Object.keys(psi.metrics || {}).length) {
+                ensure(110);
+                section('Lighthouse metrics', 'Google', 'Key laboratory and field metrics returned by the current PageSpeed/Lighthouse response.');
+                metricGrid(psi.metrics || {});
+            }
+            if ((psi.opportunities || []).length) {
+                ensure(95);
+                section('Performance opportunities', 'Lighthouse', 'Potential improvements surfaced by Lighthouse.');
+                callouts(psi.opportunities.map(function (x) { return x.title + (x.display_value ? ' - ' + x.display_value : ''); }), 'warn', 22);
+            }
+            if ((psi.diagnostics || []).length) {
+                ensure(95);
+                section('Diagnostics', 'Lighthouse', 'Supporting diagnostics that may explain performance and quality issues.');
+                callouts(psi.diagnostics.map(function (x) { return x.title + (x.display_value ? ' - ' + x.display_value : ''); }), 'warn', 30);
+            }
+            Object.entries(psi.category_details || {}).forEach(function (e) {
+                var detail = e[1] || {};
+                ensure(115);
+                section(detail.title || categoryLabel(e[0]), 'Category detail', detail.description || 'Scored Lighthouse audits that need attention.');
+                scoreGrid([{ label: 'Category score', value: detail.score }]);
+                var rows = (detail.audits || []).filter(function (a) { return a.score !== null && a.score !== undefined && a.score < 100; }).map(function (a) {
+                    return a.title + (a.display_value ? ' - ' + a.display_value : '');
+                });
+                callouts(rows, 'warn', 24);
+            });
+        }
+
+        ensure(145);
+        section('Security headers', 'Security', 'Recommended browser security headers detected on the audited response.');
+        securityTable(audit.security_headers || {});
+
+        if (ops.length) pages.push(ops.join('\n'));
+        pages = pages.map(function (content, i) {
+            return content +
+                '\n0.84 0.90 0.87 RG 36 29 m 559 29 l S' +
+                '\n0.38 0.47 0.43 rg BT /F1 6.8 Tf 36 17 Td (' + esc('Website Growth Toolkit - ' + host) + ') Tj ET' +
+                '\nBT /F1 6.8 Tf 500 17 Td (' + esc('Page ' + (i + 1) + ' / ' + pages.length) + ') Tj ET';
+        });
+
+        var objects = [];
+        function add(body) { objects.push(body); return objects.length; }
+        var catalog = add('<< /Type /Catalog /Pages 2 0 R >>');
+        add('PAGES_PLACEHOLDER');
+        var font1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+        var font2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+        var pageRefs = [];
+        pages.forEach(function (content) {
+            var stream = add('<< /Length ' + content.length + ' >>\nstream\n' + content + '\nendstream');
+            var p = add('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 ' + font1 + ' 0 R /F2 ' + font2 + ' 0 R >> >> /Contents ' + stream + ' 0 R >>');
+            pageRefs.push(p + ' 0 R');
+        });
+        objects[1] = '<< /Type /Pages /Kids [' + pageRefs.join(' ') + '] /Count ' + pageRefs.length + ' >>';
+        var out = '%PDF-1.4\n%WGT\n', offsets = [0];
+        objects.forEach(function (body, i) { offsets.push(out.length); out += (i + 1) + ' 0 obj\n' + body + '\nendobj\n'; });
+        var xref = out.length;
+        out += 'xref\n0 ' + (objects.length + 1) + '\n0000000000 65535 f \n';
+        for (var oi = 1; oi < offsets.length; oi++) out += String(offsets[oi]).padStart(10, '0') + ' 00000 n \n';
+        out += 'trailer\n<< /Size ' + (objects.length + 1) + ' /Root ' + catalog + ' 0 R >>\nstartxref\n' + xref + '\n%%EOF';
+        downloadBlob(new Blob([out], { type: 'application/pdf' }), 'website-audit-' + host.replace(/[^a-z0-9.-]+/gi, '-') + '.pdf');
+    }
     function downloadImageIssuesCsv(items, host) {
         var rows=[['Image URL','Issues','Alt text','Width','Height','Loading']];
         (items||[]).forEach(function(it){rows.push([it.url||'',(it.issues||[]).join('; '),it.alt||'',it.width||'',it.height||'',it.loading||'']);});

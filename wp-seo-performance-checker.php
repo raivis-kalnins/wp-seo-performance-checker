@@ -3,7 +3,7 @@
  * Plugin Name: WP SEO Performance Checker
  * Plugin URI: /wp-seo-performance-checker
  * Description: Website growth toolkit for SEO audits, visual sitemap QA, social brand checks, design QA, media search, image/video optimization, reporting, and WordPress SEO workflows.
- * Version: 2.5.4
+ * Version: 2.5.5
  * Requires at least: 5.8
  * Requires PHP: 7.4
  * Author: Raivis Kalnins
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('SEOPC_VERSION', '2.5.4');
+define('SEOPC_VERSION', '2.5.5');
 define('SEOPC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('SEOPC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('SEOPC_PLUGIN_BASENAME', plugin_basename(__FILE__));

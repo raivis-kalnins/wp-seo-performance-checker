@@ -4,6 +4,14 @@ A WordPress website-growth toolkit for SEO auditing, visual sitemap QA, social b
 
 ## Version
 
+### 2.5.5
+- Rebuilt the website-audit PDF layout for clean A4 alignment and client-ready visual hierarchy.
+- Fixed the report title collision in the header and prevented continuation content from starting underneath the repeated page header.
+- Added a structured audit hero, aligned score cards, two-column technical summary cards, status-based SEO check panels, clearer action callouts, image-issue rows, Lighthouse metric cards, and compact security-header rows.
+- Improved wrapping for long domains, URLs, issue text, and Lighthouse labels using width-aware line breaking instead of fixed character counts.
+- Added safer section/page-break rules so headings stay with their content and long audit sections continue cleanly across pages.
+- Refined report footer alignment and consistent page numbering.
+
 ### 2.5.4
 - Fixed false multiple-H1 reports by counting only literal visible-body `<h1>` elements for SEO.
 - ARIA `role="heading" aria-level="1"` elements are now tracked separately instead of being added to the H1 total.
@@ -22,7 +30,7 @@ A WordPress website-growth toolkit for SEO auditing, visual sitemap QA, social b
 - Added detailed per-image SEO issue rows and CSV export.
 
 
-**v2.5.4**
+**v2.5.5**
 
 
 
