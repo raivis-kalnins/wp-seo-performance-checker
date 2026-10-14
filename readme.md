@@ -1,8 +1,59 @@
+## 3.2.0 - Reliable fast PDF screenshots
+
+- Fixes the v3.1.0 regression where Fast mode could finish the PDF with no embedded visual screenshots.
+- Keeps the one-load-per-page reusable iframe optimisation when it succeeds.
+- Adds safer render/load time budgets for self-contained snapshots with embedded images and CSS.
+- Forces viewport resize/reflow before each device capture.
+- Adds an automatic per-device fallback to the proven v3.0.2 capture path only when the fast reused-frame capture fails.
+- A failed device no longer causes every visual in the report to be empty.
+
+## 3.1.0 - Faster visual PDF + more optional device presets
+
+- Adds optional iPhone SE, iPhone 15 Pro Max, Pixel 8, iPad mini, iPad Pro 12.9, Laptop HD and Desktop QHD PDF device presets.
+- Keeps the existing iPhone 15, iPad Air, MacBook Air 13 and Desktop HD presets selected by default; all new presets start unchecked.
+- Reuses one loaded snapshot per website page across every selected viewport instead of rebuilding the iframe for each device.
+- Adds a Fast PDF mode as the default for multi-page reports, with lower memory use and shorter capture timeouts.
+- Shows the total screenshot workload before generation so large reports are obvious before starting.
+- Keeps Balanced, High and Print modes for cases where extra sharpness is worth the longer build time.
+
+## 3.0.2 - Design PDF completion & performance fix
+
+- Fixed protected-toolkit 403 failures during long reports for logged-in administrators by applying the configured admin bypass to every AJAX request.
+- Removed cross-origin webfont dependency from screenshot capture to stop repeated CORS font failures and long waits.
+- Added hard capture timeouts so one problematic page/device cannot block the whole PDF.
+- Capped screenshot raster dimensions and reduced JPEG payload while preserving readable High/Print output.
+- Enabled jsPDF compression and faster image embedding to reduce browser memory pressure.
+- Reduced concurrent page audits from three to two for more reliable shared-hosting execution.
+- Added a Cancel control for long Design QA report jobs.
+
 # SEO Performance Checker (Enhanced)
 
 A WordPress website-growth toolkit for SEO auditing, visual sitemap QA, social brand checks, design QA, free-media search, image/video editing and optimization, schema checks, reporting, internal linking guidance, competitor benchmarking, and agency workflows.
 
+## v3.0.0
+- Added Select all / Unselect all plus content-type filters for Pages, Posts, Products, Product categories, Categories, Tags, Authors and Other sitemap URLs.
+- Added PDF scope selector: selected checkboxes, current filtered view, all discovered pages or any individual content type.
+- Multi-page Design QA now tests three URLs in parallel and reuses session-cached audits when rebuilding a report.
+- Added Balanced, High and Print PDF quality modes with higher-resolution visual captures.
+- Laptop and desktop visuals now use landscape A4 PDF pages to maximise screenshot size and readability.
+- Sitemap discovery now exposes a content_type field derived from WordPress/WooCommerce sitemap groups.
+
+## v2.9.0
+- Design QA can discover up to 500 sitemap pages for a website.
+- Added searchable multi-page selector with Select visible / Clear visible controls.
+- Added selectable PDF device views for iPhone 15, iPad Air, MacBook Air 13 and Desktop HD.
+- Multi-page PDF tests every selected URL separately and includes page-specific scores, findings and visual viewport captures.
+- Improved iframe screenshot capture by waiting for fonts/images and rendering an off-screen same-origin preview before PDF composition.
+
+
 ## Version
+
+### 2.6.0
+- Added a dedicated **Responsive & Browser Test** admin tab with phone, tablet, laptop and desktop presets, custom viewport sizing, rotation, scaling and reload/open controls.
+- Added a three-device comparison view for iPhone 15, iPad Air and MacBook Air-sized previews.
+- Expanded the front-end **Design QA** viewport presets to cover iPhone, large-phone, iPad, laptop and full-HD desktop widths.
+- Added one-click testing launchers for ResponsiveTool, Responsivly, WaveSpeed, EazyStudio and BrowserStack, including direct current-URL hand-off to ResponsiveTool.
+- Added clear handling notes for sites that block iframe embedding with X-Frame-Options/CSP and for third-party free-plan limitations.
 
 ### 2.5.5
 - Rebuilt the website-audit PDF layout for clean A4 alignment and client-ready visual hierarchy.
@@ -30,7 +81,7 @@ A WordPress website-growth toolkit for SEO auditing, visual sitemap QA, social b
 - Added detailed per-image SEO issue rows and CSV export.
 
 
-**v2.5.5**
+**v2.6.0**
 
 
 
@@ -559,3 +610,27 @@ Then:
 - device and country filters directly on dashboard tables
 - Core Web Vitals integration
 - scheduled weekly SEO summary emails
+
+
+
+## 2.9.0 - Per-test PDF reports & expanded Design QA
+- Removed the unreliable combined Full Report tab and replaced it with separate PDF exports on the individual website test pages.
+- Website Audit keeps its existing detailed PDF report; Sitemap, Social, Design QA and DNS & Server now have their own dedicated PDF export buttons.
+- Reworked Design QA with compact external testing links, more automated responsive/UX signals, multi-device visual comparison, a manual launch checklist and a client-ready responsive PDF.
+- The Design QA PDF includes automated findings plus visual snapshot pages for iPhone 15, iPad Air, MacBook Air and desktop HD sizes when browser capture is available.
+- Added design checks for duplicate IDs, unnamed links/buttons, fixed/sticky UI, large fixed heights, wide fixed tables, responsive image attributes, target=_blank rel protection and additional layout signals.
+- PDF generation for per-test reports now uses direct jsPDF composition rather than the previous hidden full-report html2pdf workflow that could produce blank output.
+
+## 2.7.0 - Full PDF Reports
+- Added Full Report tab for client-ready A4 PDF exports combining Website Audit, Lighthouse, Design/Responsive QA, Sitemap, Social, and DNS/Server results.
+- Added PDF export to Responsive & Browser Test with viewport details and visual QA checklist.
+- Untested report sections are explicitly marked instead of receiving artificial scores.
+
+
+## 3.0.2 - PDF image reliability
+- Design QA snapshots are now self-contained for PDF capture.
+- Remote `img`, lazy-load and `srcset` assets are embedded as data URLs server-side.
+- CSS stylesheets are inlined where practical and CSS background images are embedded.
+- Cross-origin webfonts are stripped from capture snapshots to avoid CORS stalls.
+- Snapshot cache key bumped so old broken preview HTML is not reused.
+- Per-page asset budgets and request limits prevent large sites from exhausting memory.

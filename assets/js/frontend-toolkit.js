@@ -444,6 +444,367 @@
         downloadText(JSON.stringify(payload, null, 2), 'website-audit-' + host + '.json', 'application/json');
     }
 
+
+    function saveReportPart(key, data) {
+        try {
+            localStorage.setItem('seopc_report_' + key, JSON.stringify({ data: data, saved_at: Date.now() }));
+        } catch (e) {}
+    }
+
+    async function ensureReportPdfLibraries(withCanvas) {
+        if (!window.jspdf || !window.jspdf.jsPDF) {
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+        }
+        if (withCanvas && !window.html2canvas) {
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', 'html2canvas');
+        }
+        if (!window.jspdf || !window.jspdf.jsPDF) throw new Error('Could not load the PDF library.');
+        if (withCanvas && !window.html2canvas) throw new Error('Could not load the screenshot library.');
+    }
+
+    function pdfHost(url) {
+        try { return new URL(url).hostname || 'website'; } catch (e) { return String(url || 'website').replace(/^https?:\/\//,'').split('/')[0] || 'website'; }
+    }
+
+    function pdfScalar(value) {
+        if (Array.isArray(value)) return value.join(', ');
+        if (value && typeof value === 'object') return Object.keys(value).map(function (key) { return key + ': ' + safeText(value[key], ''); }).join('; ');
+        return safeText(value, '—');
+    }
+
+    async function downloadSectionPdf(options) {
+        await ensureReportPdfLibraries(false);
+        var jsPDF = window.jspdf.jsPDF;
+        var doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+        var W = 210, H = 297, ML = 16, MR = 16, y = 18, page = 1;
+        var host = pdfHost(options.url || 'website');
+        var accent = [18, 116, 93], dark = [15, 58, 47], muted = [94, 113, 105], border = [222, 234, 229], pale = [246, 250, 248];
+        function footer() {
+            doc.setDrawColor.apply(doc, border); doc.line(ML, 282, W-MR, 282);
+            doc.setTextColor.apply(doc, muted); doc.setFont('helvetica','normal'); doc.setFontSize(7.5);
+            doc.text('Website Growth Toolkit - ' + host, ML, 288);
+            doc.text('Page ' + page, W-MR, 288, {align:'right'});
+        }
+        function newPage() { footer(); doc.addPage(); page += 1; y = 18; headerBand(); }
+        function ensure(height) { if (y + height > 276) newPage(); }
+        function headerBand() {
+            doc.setFillColor.apply(doc, dark); doc.rect(0,0,W,24,'F');
+            doc.setFillColor.apply(doc, accent); doc.rect(0,0,4,24,'F');
+            doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('Website Growth Toolkit', ML, 10);
+            doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(202,233,220); doc.text(options.shortTitle || options.title || 'Website report', ML, 17);
+            y = 34;
+        }
+        function wrapped(text, width, size, style, color) {
+            doc.setFont('helvetica', style || 'normal'); doc.setFontSize(size || 9); doc.setTextColor.apply(doc, color || dark);
+            var lines = doc.splitTextToSize(pdfScalar(text), width); return lines;
+        }
+        function sectionTitle(title, subtitle) {
+            ensure(24);
+            doc.setTextColor.apply(doc, accent); doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.text('WEBSITE QA', ML, y); y += 5;
+            doc.setTextColor.apply(doc, dark); doc.setFontSize(15); doc.text(title, ML, y); y += 3;
+            doc.setDrawColor.apply(doc, border); doc.line(ML, y+2, W-MR, y+2); y += 8;
+            if (subtitle) { var l=wrapped(subtitle,W-ML-MR,8,'normal',muted); doc.text(l,ML,y); y += l.length*4 + 4; }
+        }
+        function scoreCards(cards) {
+            cards=(cards||[]).filter(Boolean); if(!cards.length)return;
+            var cols=3, gap=4, cw=(W-ML-MR-gap*(cols-1))/cols, ch=27;
+            for(var i=0;i<cards.length;i+=cols){ ensure(ch+5); for(var j=0;j<cols && i+j<cards.length;j++){
+                var c=cards[i+j], x=ML+j*(cw+gap), value=Number(c.value), shown=isNaN(value)?pdfScalar(c.value):Math.round(value)+'/100';
+                doc.setFillColor.apply(doc,pale); doc.setDrawColor.apply(doc,border); doc.roundedRect(x,y,cw,ch,2.5,2.5,'FD');
+                doc.setTextColor.apply(doc,muted); doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.text(String(c.label||'Score').toUpperCase(),x+4,y+6);
+                doc.setTextColor.apply(doc,dark); doc.setFontSize(16); doc.text(shown,x+4,y+15);
+                if(c.note){doc.setTextColor.apply(doc,muted);doc.setFont('helvetica','normal');doc.setFontSize(6.7);var nl=doc.splitTextToSize(pdfScalar(c.note),cw-8).slice(0,2);doc.text(nl,x+4,y+21);}
+            } y+=ch+5; }
+        }
+        function keyRows(rows) {
+            (rows||[]).forEach(function(row){
+                var label=pdfScalar(row[0]), value=pdfScalar(row[1]); var vl=doc.splitTextToSize(value,112); var rh=Math.max(9,vl.length*4+5); ensure(rh+1);
+                doc.setFillColor.apply(doc,pale); doc.setDrawColor.apply(doc,border); doc.roundedRect(ML,y,W-ML-MR,rh,1.5,1.5,'FD');
+                doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor.apply(doc,dark); doc.text(label,ML+4,y+5.5);
+                doc.setFont('helvetica','normal'); doc.setTextColor.apply(doc,muted); doc.text(vl,ML+58,y+5.5); y+=rh+2;
+            }); y+=2;
+        }
+        function bullets(items) {
+            (items||[]).forEach(function(item){ var text=pdfScalar(item); var lines=doc.splitTextToSize(text,W-ML-MR-9); var rh=Math.max(7,lines.length*4.2+2); ensure(rh+1); doc.setFillColor(231,248,240); doc.circle(ML+2,y+2.2,1.2,'F'); doc.setTextColor.apply(doc,dark); doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.text(lines,ML+7,y+3.5); y+=rh; }); y+=2;
+        }
+        headerBand();
+        doc.setTextColor.apply(doc,dark); doc.setFont('helvetica','bold'); doc.setFontSize(23); var titleLines=doc.splitTextToSize(options.title || 'Website report', 150); doc.text(titleLines,ML,y); y+=titleLines.length*9+3;
+        doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor.apply(doc,muted); var sub=doc.splitTextToSize(options.subtitle||'',W-ML-MR); if(sub.length){doc.text(sub,ML,y);y+=sub.length*4.5+5;}
+        doc.setFillColor.apply(doc,pale); doc.roundedRect(ML,y,W-ML-MR,20,2.5,2.5,'F'); doc.setFontSize(8); doc.setTextColor.apply(doc,muted); doc.text('Website',ML+5,y+6); doc.setFont('helvetica','bold'); doc.setTextColor.apply(doc,dark); doc.text(host,ML+5,y+12); doc.setFont('helvetica','normal'); doc.setTextColor.apply(doc,muted); doc.text('Generated ' + new Date().toLocaleString(),W-MR-5,y+12,{align:'right'}); y+=28;
+        scoreCards(options.scores||[]);
+        (options.sections||[]).forEach(function(sec){ sectionTitle(sec.title||'Details',sec.subtitle||''); if(sec.rows)keyRows(sec.rows); if(sec.bullets)bullets(sec.bullets); if(sec.note){ensure(18);doc.setFillColor(242,248,245);doc.setDrawColor.apply(doc,border);var note=doc.splitTextToSize(pdfScalar(sec.note),W-ML-MR-10);var nh=note.length*4+8;doc.roundedRect(ML,y,W-ML-MR,nh,2,2,'FD');doc.setTextColor.apply(doc,muted);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text(note,ML+5,y+6);y+=nh+5;} });
+        footer();
+        doc.save((options.filename||('website-report-'+host))+'.pdf');
+    }
+
+    function waitMs(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
+
+    function prepareCaptureHtml(previewHtml) {
+        if (!previewHtml) return '';
+        var html=String(previewHtml)
+            .replace(/<link\b[^>]*\brel=["']?preload["']?[^>]*\bas=["']?font["']?[^>]*>/gi,'')
+            .replace(/<link\b[^>]*\bas=["']?font["']?[^>]*\brel=["']?preload["']?[^>]*>/gi,'');
+        var captureCss='<style id="seopc-capture-optimise">*{font-family:Arial,Helvetica,sans-serif!important;animation:none!important;transition:none!important;caret-color:transparent!important}html{scroll-behavior:auto!important}video,audio{visibility:hidden!important}</style>';
+        if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i,captureCss+'</head>');
+        return captureCss+html;
+    }
+
+    async function capturePreviewHtml(previewHtml, device, qualityMode) {
+        if (!previewHtml) return null;
+        await ensureReportPdfLibraries(true);
+        var frame=document.createElement('iframe');
+        frame.setAttribute('sandbox','allow-same-origin');
+        frame.setAttribute('referrerpolicy','no-referrer');
+        frame.style.position='fixed'; frame.style.left='-10000px'; frame.style.top='0';
+        frame.style.width=device.width+'px'; frame.style.height=device.height+'px';
+        frame.width=String(device.width); frame.height=String(device.height);
+        frame.style.border='0'; frame.style.opacity='0.01'; frame.style.pointerEvents='none';
+        document.body.appendChild(frame);
+        try {
+            await new Promise(function(resolve){
+                var done=false, timer=setTimeout(function(){if(!done){done=true;resolve();}},1800);
+                frame.onload=function(){if(!done){done=true;clearTimeout(timer);resolve();}};
+                frame.srcdoc=prepareCaptureHtml(previewHtml);
+            });
+            var doc=frame.contentDocument;
+            if(!doc||!doc.documentElement)return null;
+            var imgs=Array.prototype.slice.call(doc.images||[]).slice(0,50);
+            if(imgs.length){await Promise.race([Promise.all(imgs.map(function(img){return img.complete?Promise.resolve():new Promise(function(r){var t=setTimeout(r,650);img.addEventListener('load',function(){clearTimeout(t);r();},{once:true});img.addEventListener('error',function(){clearTimeout(t);r();},{once:true});});})),waitMs(750)]);}
+            await waitMs(80);
+            var root=doc.body||doc.documentElement;
+            var mode=qualityMode||'balanced';
+            var cfg={
+                fast:{scale:0.88,max:1250,jpeg:0.76,timeout:7000,imageTimeout:750},
+                balanced:{scale:1.08,max:1650,jpeg:0.84,timeout:9000,imageTimeout:900},
+                high:{scale:1.32,max:2000,jpeg:0.89,timeout:12000,imageTimeout:1100},
+                print:{scale:1.62,max:2400,jpeg:0.92,timeout:16000,imageTimeout:1400}
+            }[mode]||{scale:1.08,max:1650,jpeg:0.84,timeout:9000,imageTimeout:900};
+            try{
+                if(doc.documentElement){doc.documentElement.style.width=device.width+'px';doc.documentElement.style.maxWidth='none';doc.documentElement.style.minWidth='0';}
+                if(doc.body){doc.body.style.width=device.width+'px';doc.body.style.maxWidth='none';doc.body.style.minWidth='0';doc.body.style.marginLeft='0';doc.body.style.marginRight='0';}
+                if(doc.defaultView){try{doc.defaultView.dispatchEvent(new doc.defaultView.Event('resize'));}catch(er){}}
+                void frame.offsetWidth;
+            }catch(e){}
+            await waitMs(mode==='fast'?70:110);
+            var scale=Math.min(cfg.scale,cfg.max/Math.max(1,device.width));
+            scale=Math.max(0.65,scale);
+            var jpegQuality=cfg.jpeg;
+            var opts={backgroundColor:'#ffffff',scale:scale,useCORS:true,allowTaint:false,logging:false,width:device.width,height:device.height,windowWidth:device.width,windowHeight:device.height,x:0,y:0,scrollX:0,scrollY:0,imageTimeout:cfg.imageTimeout,removeContainer:true};
+            var timeoutMs=cfg.timeout;
+            async function rasterize(localOpts){
+                return Promise.race([
+                    window.html2canvas(root,localOpts),
+                    new Promise(function(_,reject){setTimeout(function(){reject(new Error('capture-timeout'));},timeoutMs);})
+                ]);
+            }
+            var canvas;
+            try { canvas=await rasterize(opts); }
+            catch(e1){
+                try { opts.foreignObjectRendering=true; opts.imageTimeout=600; canvas=await rasterize(opts); }
+                catch(e2){ return null; }
+            }
+            try {
+                var data=canvas.toDataURL('image/jpeg',jpegQuality);
+                canvas.width=1; canvas.height=1;
+                return data;
+            } catch(e3) { return null; }
+        } finally { if(frame&&frame.parentNode)frame.parentNode.removeChild(frame); }
+    }
+
+
+    async function capturePreviewHtmlBatch(previewHtml, devices, qualityMode, progressCb, shouldCancel) {
+        devices=(devices||[]).filter(Boolean);
+        if (!previewHtml || !devices.length) return devices.map(function(){return null;});
+        await ensureReportPdfLibraries(true);
+        shouldCancel=typeof shouldCancel==='function'?shouldCancel:function(){return false;};
+        var frame=document.createElement('iframe');
+        frame.setAttribute('sandbox','allow-same-origin');
+        frame.setAttribute('referrerpolicy','no-referrer');
+        frame.style.position='fixed';frame.style.left='-12000px';frame.style.top='0';
+        frame.style.width=devices[0].width+'px';frame.style.height=devices[0].height+'px';
+        frame.width=String(devices[0].width);frame.height=String(devices[0].height);
+        frame.style.border='0';frame.style.opacity='0.01';frame.style.pointerEvents='none';
+        document.body.appendChild(frame);
+        var out=[];
+        try {
+            await new Promise(function(resolve){
+                var done=false,timer=setTimeout(function(){if(!done){done=true;resolve();}},2000);
+                frame.onload=function(){if(!done){done=true;clearTimeout(timer);resolve();}};
+                frame.srcdoc=prepareCaptureHtml(previewHtml);
+            });
+            var doc=frame.contentDocument;
+            if(!doc||!doc.documentElement)return devices.map(function(){return null;});
+            var imgs=Array.prototype.slice.call(doc.images||[]).slice(0,80);
+            if(imgs.length){await Promise.race([Promise.all(imgs.map(function(img){return img.complete?Promise.resolve():new Promise(function(r){var t=setTimeout(r,850);img.addEventListener('load',function(){clearTimeout(t);r();},{once:true});img.addEventListener('error',function(){clearTimeout(t);r();},{once:true});});})),waitMs(950)]);}
+            var root=doc.body||doc.documentElement;
+            var mode=qualityMode||'fast';
+            var cfg={
+                fast:{scale:0.72,max:1050,jpeg:0.68,timeout:11000,retry:true,settle:110,imageTimeout:900},
+                balanced:{scale:0.9,max:1250,jpeg:0.73,timeout:13000,retry:true,settle:120,imageTimeout:1000},
+                high:{scale:1.08,max:1450,jpeg:0.78,timeout:17000,retry:true,settle:140,imageTimeout:1200},
+                print:{scale:1.35,max:1850,jpeg:0.84,timeout:24000,retry:true,settle:160,imageTimeout:1500}
+            }[mode]||{scale:0.72,max:1050,jpeg:0.68,timeout:11000,retry:true,settle:110,imageTimeout:900};
+            for(var i=0;i<devices.length;i++){
+                if(shouldCancel())throw new Error('Report cancelled.');
+                var d=devices[i];
+                frame.style.width=d.width+'px';frame.style.height=d.height+'px';
+                frame.width=String(d.width);frame.height=String(d.height);
+                try{
+                    if(doc.documentElement){doc.documentElement.style.width=d.width+'px';doc.documentElement.style.maxWidth=d.width+'px';}
+                    if(doc.body){doc.body.style.width=d.width+'px';doc.body.style.maxWidth=d.width+'px';}
+                    if(doc.defaultView){
+                        try{doc.defaultView.dispatchEvent(new doc.defaultView.Event('resize'));}catch(er){}
+                    }
+                    void frame.offsetWidth;
+                }catch(e){}
+                await waitMs(cfg.settle);
+                var scale=Math.min(cfg.scale,cfg.max/Math.max(1,d.width));scale=Math.max(0.55,scale);
+                var opts={backgroundColor:'#ffffff',scale:scale,useCORS:true,allowTaint:false,logging:false,width:d.width,height:d.height,windowWidth:d.width,windowHeight:d.height,scrollX:0,scrollY:0,imageTimeout:cfg.imageTimeout,removeContainer:true};
+                async function rasterize(localOpts){return Promise.race([window.html2canvas(root,localOpts),new Promise(function(_,reject){setTimeout(function(){reject(new Error('capture-timeout'));},cfg.timeout);})]);}
+                var canvas=null;
+                try{canvas=await rasterize(opts);}catch(e1){
+                    if(cfg.retry){
+                        try{var retryOpts=Object.assign({},opts,{foreignObjectRendering:true,imageTimeout:Math.max(700,Math.round(cfg.imageTimeout*0.75))});canvas=await rasterize(retryOpts);}catch(e2){canvas=null;}
+                    }
+                }
+                var data=null;
+                if(canvas){
+                    try{data=canvas.toDataURL('image/jpeg',cfg.jpeg);}catch(e3){data=null;}
+                    finally{canvas.width=1;canvas.height=1;}
+                }
+                // Safety fallback: v3.0.2's per-device path is slower, but proved reliable.
+                // Only use it for the specific viewport that failed in the fast/reused iframe path.
+                if(!data && !shouldCancel()){
+                    try{data=await capturePreviewHtml(previewHtml,d,mode==='fast'?'balanced':mode);}catch(e4){data=null;}
+                }
+                out.push(data||null);
+                if(progressCb)progressCb(i,d,!!data);
+                await waitMs(20);
+            }
+            return out;
+        } finally {if(frame&&frame.parentNode)frame.parentNode.removeChild(frame);}
+    }
+
+    async function captureDesignIframe(frame, device) {
+        if (!frame || !frame.contentDocument) return null;
+        try {
+            var html='<!doctype html>'+frame.contentDocument.documentElement.outerHTML;
+            return await capturePreviewHtml(html,device);
+        } catch(e){ return null; }
+    }
+
+    async function downloadDesignQaDevicePdf(reportPages, device, manualChecks, progressCb, options) {
+        await ensureReportPdfLibraries(true);
+        reportPages=Array.isArray(reportPages)?reportPages:[];
+        if(!reportPages.length) throw new Error('No tested pages are available for the PDF.');
+        if(!device) throw new Error('Choose a device size for the PDF.');
+        options=options||{};
+        var qualityMode=options.quality||'balanced';
+        var shouldCancel=typeof options.shouldCancel==='function'?options.shouldCancel:function(){return false;};
+        var includeFindings=options.includeFindings!==false;
+        var jsPDF=window.jspdf.jsPDF;
+        var orientation=device.width>device.height?'landscape':'portrait';
+        var doc=new jsPDF({unit:'mm',format:'a4',orientation:orientation,compress:true});
+        var ML=12,MR=12,accent=[18,116,93],dark=[15,58,47],muted=[94,113,105],border=[222,234,229],pale=[246,250,248];
+        var first=reportPages[0]||{},host=pdfHost(first.url||''),pageNo=1;
+        function PW(){return doc.internal.pageSize.getWidth();}
+        function PH(){return doc.internal.pageSize.getHeight();}
+        function pageLabel(url){try{var u=new URL(url);return u.pathname==='/'?'Home':decodeURIComponent(u.pathname.replace(/^\/+|\/+$/g,''))||'Home';}catch(e){return url;}}
+        function footer(){var W=PW(),H=PH();doc.setDrawColor.apply(doc,border);doc.line(ML,H-10,W-MR,H-10);doc.setFont('helvetica','normal');doc.setFontSize(6.8);doc.setTextColor.apply(doc,muted);doc.text(device.name+' responsive QA - '+host,ML,H-5);doc.text('Page '+pageNo,W-MR,H-5,{align:'right'});}
+        function addPage(label){footer();doc.addPage('a4',orientation);pageNo++;var W=PW();doc.setFillColor.apply(doc,dark);doc.rect(0,0,W,18,'F');doc.setFillColor.apply(doc,accent);doc.rect(0,0,4,18,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('Website Growth Toolkit',ML,8);doc.setFont('helvetica','normal');doc.setFontSize(6.5);doc.setTextColor(202,233,220);doc.text(label||device.name,ML,13.5);}
+        var scores=reportPages.map(function(p){var v=p.audit&&p.audit.design&&Number(p.audit.design.score);return isFinite(v)?v:null;}).filter(function(v){return v!==null;});
+        var avg=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
+        var W=PW(),H=PH();
+        doc.setFillColor.apply(doc,dark);doc.rect(0,0,W,60,'F');doc.setFillColor.apply(doc,accent);doc.rect(0,0,5,60,'F');
+        doc.setTextColor(190,233,214);doc.setFont('helvetica','bold');doc.setFontSize(8);doc.text('RESPONSIVE VISUAL QA',ML,15);
+        doc.setTextColor(255,255,255);doc.setFontSize(22);doc.text(device.name,ML,29);doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(222,244,235);doc.text(device.width+' x '+device.height+' CSS px',ML,39);doc.setFontSize(8);doc.text(reportPages.length+' pages · '+qualityMode+' quality · '+(includeFindings?'visual + QA findings':'visual-only'),ML,49);
+        doc.setFillColor(255,255,255);doc.roundedRect(W-48,17,34,27,3,3,'F');doc.setTextColor.apply(doc,accent);doc.setFont('helvetica','bold');doc.setFontSize(avg===null?11:18);doc.text(avg===null?'VISUAL':String(avg),W-31,30,{align:'center'});doc.setFontSize(5.8);doc.setTextColor.apply(doc,muted);doc.text(avg===null?'REPORT':'AVG DESIGN SCORE',W-31,37,{align:'center'});
+        doc.setFillColor.apply(doc,pale);doc.roundedRect(ML,72,W-ML-MR,23,3,3,'F');doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(8);doc.text(host,ML+5,80);doc.setFont('helvetica','normal');doc.setTextColor.apply(doc,muted);doc.text('Generated '+new Date().toLocaleString(),ML+5,88);doc.text('One fresh viewport capture per page - no cross-device iframe resizing',W-MR-5,88,{align:'right'});
+        var cy=107;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(13);doc.text('Pages included',ML,cy);cy+=7;doc.setFont('helvetica','normal');doc.setFontSize(7.2);doc.setTextColor.apply(doc,muted);
+        reportPages.slice(0,30).forEach(function(p,i){if(cy>H-18)return;doc.text((i+1)+'. '+doc.splitTextToSize(pageLabel(p.url),W-ML-MR-22)[0],ML,cy);if(p.audit&&p.audit.design){doc.setTextColor.apply(doc,accent);doc.text(String(Math.round(Number(p.audit.design.score||0)))+'/100',W-MR,cy,{align:'right'});doc.setTextColor.apply(doc,muted);}cy+=4.8;});
+
+        for(var i=0;i<reportPages.length;i++){
+            if(shouldCancel())throw new Error('Report cancelled.');
+            var rp=reportPages[i],design=rp.audit&&rp.audit.design||{};
+            addPage('Page '+(i+1)+' of '+reportPages.length+' · '+pageLabel(rp.url));
+            if(progressCb)progressCb({page:i+1,pages:reportPages.length,label:pageLabel(rp.url)+' · '+device.name});
+            var img=null;
+            try{img=await capturePreviewHtml(rp.preview&&rp.preview.html||'',device,qualityMode);}catch(e){img=null;}
+            W=PW();H=PH();var top=24;
+            doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(12);doc.text(doc.splitTextToSize(pageLabel(rp.url),W-ML-MR-42)[0],ML,top+2);
+            doc.setFont('helvetica','normal');doc.setFontSize(6.3);doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize(rp.url||'',W-ML-MR-42)[0],ML,top+7);
+            if(includeFindings&&rp.audit&&rp.audit.design){doc.setFillColor.apply(doc,pale);doc.roundedRect(W-MR-29,top-2,29,14,2,2,'F');doc.setTextColor.apply(doc,accent);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text(String(Math.round(Number(design.score||0))),W-MR-14.5,top+4,{align:'center'});doc.setFontSize(5);doc.setTextColor.apply(doc,muted);doc.text('DESIGN',W-MR-14.5,top+9,{align:'center'});}
+            var issueY=top+13;
+            if(includeFindings&&design.issues&&design.issues.length){doc.setFont('helvetica','normal');doc.setFontSize(5.8);doc.setTextColor.apply(doc,muted);var issue=doc.splitTextToSize('Top finding: '+pdfScalar(design.issues[0]),W-ML-MR);doc.text(issue.slice(0,2),ML,issueY);issueY+=Math.min(2,issue.length)*3+2;}
+            var shotTop=Math.max(top+15,issueY),maxW=W-ML-MR,maxH=H-shotTop-16,ratio=device.width/device.height,shotW=maxW,shotH=shotW/ratio;
+            if(shotH>maxH){shotH=maxH;shotW=shotH*ratio;}
+            var x=(W-shotW)/2;
+            if(img){doc.setFillColor(238,243,241);doc.roundedRect(x-1.5,shotTop-1.5,shotW+3,shotH+3,2.5,2.5,'F');doc.addImage(img,'JPEG',x,shotTop,shotW,shotH,undefined,qualityMode==='print'?'MEDIUM':'FAST');}
+            else{doc.setFillColor.apply(doc,pale);doc.setDrawColor.apply(doc,border);doc.roundedRect(ML,shotTop,maxW,55,3,3,'FD');doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text('Screenshot unavailable',ML+6,shotTop+14);doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize('The visual snapshot could not be rasterized for this page. The page audit remains included.',maxW-12),ML+6,shotTop+23);}
+            await waitMs(25);
+        }
+        addPage('QA checklist');
+        W=PW();var y=30;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(15);doc.text('Manual visual QA checklist',ML,y);y+=10;doc.setFontSize(8.2);
+        Object.keys(manualChecks||{}).forEach(function(label){var pass=!!manualChecks[label];if(y>PH()-24)return;doc.setFillColor(pass?225:255,pass?247:248,pass?236:235);doc.roundedRect(ML,y,W-ML-MR,9,2,2,'F');doc.setTextColor(pass?22:146,pass?101:64,pass?52:14);doc.text((pass?'PASS  ':'REVIEW  ')+label,ML+4,y+6);y+=11;});
+        footer();
+        var safeDevice=(device.key||device.name).replace(/[^a-z0-9_-]+/gi,'-').toLowerCase();
+        doc.save('design-qa-'+safeDevice+'-'+host.replace(/[^a-z0-9.-]+/gi,'-')+'.pdf');
+    }
+
+    async function downloadDesignQaPdf(reportPages, devices, manualChecks, progressCb, options) {
+        await ensureReportPdfLibraries(true);
+        reportPages=Array.isArray(reportPages)?reportPages:[];
+        if(!reportPages.length) throw new Error('No tested pages are available for the PDF.');
+        devices=(devices||[]).filter(function(d){return d.enabled!==false;});
+        if(!devices.length) throw new Error('Select at least one device size for the PDF.');
+        options=options||{};
+        var qualityMode=options.quality||'high';
+        var shouldCancel=typeof options.shouldCancel==='function'?options.shouldCancel:function(){return false;};
+        var jsPDF=window.jspdf.jsPDF, doc=new jsPDF({unit:'mm',format:'a4',orientation:'portrait',compress:true}), ML=14,MR=14;
+        var first=reportPages[0]||{}, host=pdfHost(first.url||''), accent=[18,116,93], dark=[15,58,47], muted=[94,113,105], border=[222,234,229], pale=[246,250,248];
+        var pageNo=1;
+        function PW(){return doc.internal.pageSize.getWidth();}
+        function PH(){return doc.internal.pageSize.getHeight();}
+        function footer(){var W=PW(),H=PH();doc.setDrawColor.apply(doc,border);doc.line(ML,H-15,W-MR,H-15);doc.setFont('helvetica','normal');doc.setFontSize(7.2);doc.setTextColor.apply(doc,muted);doc.text('Design QA - '+host,ML,H-9);doc.text('Page '+pageNo,W-MR,H-9,{align:'right'});}
+        function newPage(label,orientation){if(pageNo>=1)footer();doc.addPage('a4',orientation||'portrait');pageNo++;var W=PW();doc.setFillColor.apply(doc,dark);doc.rect(0,0,W,24,'F');doc.setFillColor.apply(doc,accent);doc.rect(0,0,4,24,'F');doc.setTextColor(255,255,255);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.text('Website Growth Toolkit',ML,10);doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(202,233,220);doc.text(label||'Responsive & Design QA',ML,17);}
+        function pageLabel(url){try{var u=new URL(url);return u.pathname==='/'?'Home':decodeURIComponent(u.pathname.replace(/^\/+|\/+$/g,''))||'Home';}catch(e){return url;}}
+        function typeLabel(type){return {page:'Pages',post:'Posts',product:'Products',product_category:'Product categories',category:'Categories',tag:'Tags',author:'Authors',other:'Other'}[type]||'Other';}
+        var scores=reportPages.map(function(p){var v=p.audit&&p.audit.design&&Number(p.audit.design.score);return isFinite(v)?v:null;}).filter(function(v){return v!==null;});
+        var avg=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
+        var W=PW();
+        doc.setFillColor.apply(doc,dark);doc.rect(0,0,W,84,'F');doc.setFillColor.apply(doc,accent);doc.rect(0,0,5,84,'F');doc.setTextColor(190,233,214);doc.setFont('helvetica','bold');doc.setFontSize(8);doc.text('MULTI-PAGE RESPONSIVE & DESIGN QA',ML,17);doc.setTextColor(255,255,255);doc.setFontSize(24);doc.text(doc.splitTextToSize(host,130),ML,31);doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(222,244,235);doc.text(reportPages.length+' pages · '+devices.length+' device views · '+qualityMode+' quality',ML,58);
+        doc.setFillColor(255,255,255);doc.roundedRect(160,20,34,34,4,4,'F');doc.setTextColor.apply(doc,accent);doc.setFont('helvetica','bold');doc.setFontSize(avg===null?13:21);doc.text(avg===null?'VISUAL':String(avg),177,38,{align:'center'});doc.setFontSize(6.5);doc.setTextColor.apply(doc,muted);doc.text(avg===null?'REPORT MODE':'AVG DESIGN SCORE',177,47,{align:'center'});
+        doc.setFillColor.apply(doc,pale);doc.roundedRect(ML,94,W-ML-MR,25,3,3,'F');doc.setFont('helvetica','bold');doc.setFontSize(8);doc.setTextColor.apply(doc,dark);doc.text('Report scope',ML+5,102);doc.setFont('helvetica','normal');doc.setTextColor.apply(doc,muted);doc.text(reportPages.length+' pages selected from '+host,ML+5,110);doc.text('Generated '+new Date().toLocaleString(),W-MR-5,110,{align:'right'});
+        var counts={};reportPages.forEach(function(p){var t=p.content_type||'other';counts[t]=(counts[t]||0)+1;});
+        var y=130;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(14);doc.text('Included content',ML,y);y+=8;Object.keys(counts).forEach(function(k){doc.setFillColor.apply(doc,pale);doc.roundedRect(ML,y,55,12,2,2,'F');doc.setTextColor.apply(doc,dark);doc.setFontSize(8);doc.text(typeLabel(k),ML+4,y+5);doc.setTextColor.apply(doc,accent);doc.setFontSize(11);doc.text(String(counts[k]),ML+49,y+8,{align:'right'});y+=15;});
+        y+=2;doc.setTextColor.apply(doc,dark);doc.setFontSize(12);doc.text('Selected pages',ML,y);y+=6;doc.setFont('helvetica','normal');doc.setFontSize(7.3);
+        reportPages.slice(0,18).forEach(function(p,i){if(y>270){newPage('Selected pages');y=36;}doc.setTextColor.apply(doc,muted);doc.text((i+1)+'. '+doc.splitTextToSize(pageLabel(p.url),145)[0],ML,y);if(p.audit&&p.audit.design){doc.setTextColor.apply(doc,accent);doc.text(String(Math.round(Number(p.audit.design.score||0)))+'/100',PW()-MR,y,{align:'right'});}y+=5.5;});
+        if(reportPages.length>18){doc.setTextColor.apply(doc,muted);doc.text('… '+(reportPages.length-18)+' more pages included',ML,y);}
+
+        for(var pi=0;pi<reportPages.length;pi++){
+            if(shouldCancel())throw new Error('Report cancelled.');
+            var rp=reportPages[pi], design=rp.audit&&rp.audit.design||{};
+            newPage('Page '+(pi+1)+' of '+reportPages.length+' · '+pageLabel(rp.url));
+            W=PW();var sy=35;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(17);doc.text(doc.splitTextToSize(pageLabel(rp.url),150),ML,sy);doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize(rp.url||'',175),ML,sy+10);
+            if(rp.audit&&rp.audit.design){doc.setFillColor.apply(doc,pale);doc.roundedRect(W-50,32,34,25,3,3,'F');doc.setTextColor.apply(doc,accent);doc.setFont('helvetica','bold');doc.setFontSize(17);doc.text(String(Math.round(Number(design.score||0))),W-33,44,{align:'center'});doc.setFontSize(6);doc.setTextColor.apply(doc,muted);doc.text('DESIGN SCORE',W-33,51,{align:'center'});}
+            sy=68;var issues=(design.issues||[]).slice(0,5);if(issues.length){doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor.apply(doc,dark);doc.text('Key findings',ML,sy);sy+=6;doc.setFont('helvetica','normal');doc.setFontSize(7.2);issues.forEach(function(issue){var lines=doc.splitTextToSize('• '+pdfScalar(issue),W-ML-MR);doc.setTextColor.apply(doc,muted);doc.text(lines,ML,sy);sy+=lines.length*3.6+1;});}
+            var captureImages=await capturePreviewHtmlBatch(rp.preview&&rp.preview.html||'',devices,qualityMode,function(di,d){if(progressCb)progressCb({page:pi+1,pages:reportPages.length,device:di+1,devices:devices.length,label:pageLabel(rp.url)+' · '+d.name});},shouldCancel);
+            for(var di=0;di<devices.length;di++){
+                if(shouldCancel())throw new Error('Report cancelled.');
+                var d=devices[di],img=captureImages[di]||null;
+                var landscape=d.width>d.height;
+                newPage(pageLabel(rp.url)+' · '+d.name+' '+d.width+'×'+d.height,landscape?'landscape':'portrait');
+                W=PW();var H=PH();var yy=34;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text(d.name,ML,yy);doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor.apply(doc,muted);doc.text(d.width+' × '+d.height+' CSS px · '+pageLabel(rp.url),ML,yy+7);yy+=14;
+                if(img){var maxW=W-ML-MR-4,maxH=H-yy-24,ratio=d.width/d.height,w=maxW,h=w/ratio;if(h>maxH){h=maxH;w=h*ratio;}var x=(W-w)/2;doc.setFillColor(28,39,35);doc.roundedRect(x-2,yy-2,w+4,h+4,3,3,'F');doc.addImage(img,'JPEG',x,yy,w,h,undefined,qualityMode==='print'?'MEDIUM':'FAST');}
+                else {doc.setFillColor.apply(doc,pale);doc.setDrawColor.apply(doc,border);doc.roundedRect(ML,yy,W-ML-MR,70,3,3,'FD');doc.setFont('helvetica','bold');doc.setTextColor.apply(doc,dark);doc.text('Visual capture could not be embedded',ML+7,yy+15);doc.setFont('helvetica','normal');doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize('The page test is included, but browser security or a remote asset prevented screenshot rasterization. The live preview remains available in Design QA.',W-ML-MR-14),ML+7,yy+24);}
+            }
+        }
+        newPage('QA checklist & recommendations');W=PW();var cy=36;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text('Manual visual QA checklist',ML,cy);cy+=9;doc.setFontSize(8.5);
+        Object.keys(manualChecks||{}).forEach(function(label){var pass=!!manualChecks[label];if(cy>270){newPage('QA checklist');cy=36;}doc.setFillColor(pass?225:255,pass?247:248,pass?236:235);doc.roundedRect(ML,cy,PW()-ML-MR,9,2,2,'F');doc.setTextColor(pass?22:146,pass?101:64,pass?52:14);doc.setFont('helvetica','bold');doc.text((pass?'PASS  ':'REVIEW  ')+label,ML+4,cy+6);cy+=11;});
+        cy+=4;doc.setTextColor.apply(doc,dark);doc.setFontSize(12);doc.text('Report note',ML,cy);cy+=7;doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize('Pages are grouped by sitemap content type. Wide device screenshots use landscape A4 pages to maximise readable visual area. Test results are cached during this session so changing PDF scope or quality does not force every page audit to run again.',PW()-ML-MR),ML,cy);footer();
+        doc.save('design-qa-multipage-'+host.replace(/[^a-z0-9.-]+/gi,'-')+'.pdf');
+    }
+
     function categoryLabel(key) {
         var labels = {
             'performance': 'Performance',
@@ -1178,6 +1539,7 @@
                 if (settled[1].status === 'fulfilled') setPsi(settled[1].value);
                 else setPsiError(settled[1].reason.message);
                 try { localStorage.setItem('seopc_last_audit_payload', JSON.stringify({ audit: settled[0].value, pagespeed: settled[1].status === 'fulfilled' ? settled[1].value : null, saved_at: Date.now() })); } catch (storageError) {}
+                saveReportPart('audit', { audit: settled[0].value, pagespeed: settled[1].status === 'fulfilled' ? settled[1].value : null });
                 var next = [normalized].concat(history.filter(function (item) { return item !== normalized; })).slice(0, 8);
                 setHistory(next);
                 localStorage.setItem('seopc_url_history', JSON.stringify(next));
@@ -1260,6 +1622,12 @@
         var errorState = useState('');
         var error = errorState[0];
         var setError = errorState[1];
+        var pdfBusyState = useState(false);
+        var pdfBusy = pdfBusyState[0];
+        var setPdfBusy = pdfBusyState[1];
+        var pdfErrorState = useState('');
+        var pdfError = pdfErrorState[0];
+        var setPdfError = pdfErrorState[1];
         var resultState = useState(null);
         var result = resultState[0];
         var setResult = resultState[1];
@@ -1268,10 +1636,28 @@
         var setFresh = freshState[1];
 
         async function run(event) {
-            event.preventDefault(); setBusy(true); setError(''); setResult(null);
-            try { setResult(await request('seopc_toolkit_network', { target: target, fresh: fresh ? '1' : '0' }, props.token)); }
+            event.preventDefault(); setBusy(true); setError(''); setPdfError(''); setResult(null);
+            try { var next = await request('seopc_toolkit_network', { target: target, fresh: fresh ? '1' : '0' }, props.token); setResult(next); saveReportPart('network', next); }
             catch (err) { setError(err.message); if (err.status === 403) props.onExpired(); }
             finally { setBusy(false); }
+        }
+        async function exportNetworkPdf(){
+            if(!result)return;setPdfBusy(true);setPdfError('');
+            try{
+                var httpsOpen=result.tcp&&result.tcp['443']&&result.tcp['443'].open,httpOpen=result.tcp&&result.tcp['80']&&result.tcp['80'].open,httpOk=result.http&&result.http.status>=200&&result.http.status<400;
+                var dnsRows=[];Object.keys(result.dns||{}).forEach(function(type){dnsRows.push([type,(result.dns[type]||[]).length+' record(s)']);});
+                await downloadSectionPdf({title:'DNS, Server & TLS Report',shortTitle:'Infrastructure QA',subtitle:'Public DNS, reachability, server response and TLS certificate signals for the tested host.',url:'https://'+result.host,filename:'dns-server-report-'+pdfHost('https://'+result.host),scores:[
+                    {label:'DNS response',value:Math.max(0,100-Math.min(100,Number(result.dns_latency_ms||0)/5)),note:(result.dns_latency_ms||0)+' ms lookup'},
+                    {label:'HTTP reachability',value:httpOk?100:25,note:'HTTP '+safeText(result.http&&result.http.status)},
+                    {label:'HTTPS port',value:httpsOpen?100:0,note:httpsOpen?'Port 443 open':'Unavailable'},
+                    {label:'TLS certificate',value:result.tls&&result.tls.available?(Number(result.tls.days_remaining||0)>30?100:60):0,note:result.tls&&result.tls.available?(result.tls.days_remaining+' days remaining'):'Unavailable'}
+                ],sections:[
+                    {title:'Reachability summary',rows:[['Host',result.host],['DNS latency',(result.dns_latency_ms||0)+' ms'],['HTTP latency',result.http&&result.http.latency_ms?(result.http.latency_ms+' ms'):'Unavailable'],['Port 443',httpsOpen?((result.tcp['443'].latency_ms||0)+' ms'):'Closed/unavailable'],['Port 80',httpOpen?((result.tcp['80'].latency_ms||0)+' ms'):'Closed/unavailable'],['IP addresses',(result.ips||[]).join(', ')||'None returned'],['CDN clue',result.http&&result.http.cdn||'Not detected']]},
+                    {title:'Server response',rows:[['HTTP status',result.http&&result.http.status],['Server',result.http&&result.http.server||'Not disclosed'],['Powered by',result.http&&result.http.powered_by||'Not disclosed'],['Content type',result.http&&result.http.content_type],['Cache-Control',result.http&&result.http.cache_control||'Not returned']]},
+                    {title:'TLS certificate',rows:result.tls&&result.tls.available?[['Subject',result.tls.subject],['Issuer',result.tls.issuer],['Valid from',result.tls.valid_from],['Valid to',result.tls.valid_to],['Days remaining',result.tls.days_remaining],['Subject alternative names',result.tls.san]]:[['Status',result.tls&&result.tls.error||'TLS details unavailable']]},
+                    {title:'DNS record coverage',rows:dnsRows,note:result.note||'DNS and hosting results are public infrastructure observations and should not be treated as a security penetration test.'}
+                ]});
+            }catch(e){setPdfError(e.message||'Could not create the DNS/server PDF.');}finally{setPdfBusy(false);}
         }
 
         return h('div', null,
@@ -1286,6 +1672,8 @@
             error ? h(Notice, { type: 'error' }, error) : null,
             busy ? h('div', { className: 'seopc-loading-panel' }, h('span', { className: 'seopc-spinner seopc-spinner-large' }), h('p', null, 'Resolving DNS and checking connections…')) : null,
             result ? h('div', { className: 'seopc-results' },
+                h('div',{className:'seopc-report-toolbar'},h('div',null,h('strong',null,'DNS & Server report'),h('span',null,'Export this infrastructure test as a separate PDF.')),h(Button,{variant:'primary',busy:pdfBusy,disabled:pdfBusy,onClick:exportNetworkPdf},pdfBusy?'Building PDF…':'Download PDF')),
+                pdfError?h(Notice,{type:'error'},pdfError):null,
                 result.cached ? h(Notice, null, 'Network result loaded from the temporary cache.') : null,
                 h(Notice, null, result.note),
                 h(Section, { title: result.host },
@@ -1875,11 +2263,13 @@
         var progressState = useState({done:0,total:0}); var scanProgress=progressState[0]; var setScanProgress=progressState[1];
         var scanningState = useState(''); var scanning = scanningState[0]; var setScanning = scanningState[1];
         var errorState = useState(''); var error = errorState[0]; var setError = errorState[1];
+        var pdfBusyState = useState(false); var pdfBusy = pdfBusyState[0]; var setPdfBusy = pdfBusyState[1];
+        var pdfErrorState = useState(''); var pdfError = pdfErrorState[0]; var setPdfError = pdfErrorState[1];
         var freshState = useState(false); var fresh = freshState[0]; var setFresh = freshState[1];
 
         async function load(event) {
             if (event) event.preventDefault(); setBusy(true); setError(''); setResult(null); setScans({}); setScanProgress({done:0,total:0}); rememberSiteUrl(url.trim());
-            try { setResult(await request('seopc_toolkit_sitemap', { url: url.trim(), limit: limit, fresh: fresh ? '1' : '0' }, props.token)); }
+            try { var next = await request('seopc_toolkit_sitemap', { url: url.trim(), limit: limit, fresh: fresh ? '1' : '0' }, props.token); setResult(next); saveReportPart('sitemap', next); }
             catch (err) { setError(err.message); if (err.status === 403) props.onExpired(); }
             finally { setBusy(false); }
         }
@@ -1903,6 +2293,26 @@
             (result.urls||[]).forEach(function(item){var scan=scans[item.url]||{},seo=scan.seo||{};rows.push([item.url,item.path||'',item.lastmod||'',item.group||'',scan.scores&&scan.scores.seo||'',scan.response&&scan.response.status||'',seo.title||'',seo.heading_counts&&seo.heading_counts.h1||'',seo.issues&&(seo.issues||[]).join(' | ')||(scan.error||'')]);});
             downloadText('\ufeff'+rows.map(function(row){return row.map(csvCell).join(',');}).join('\r\n'),'sitemap-audit.csv','text/csv;charset=utf-8');
         }
+        async function exportSitemapPdf() {
+            if (!result) return; setPdfBusy(true); setPdfError('');
+            try {
+                var total=Number(result.url_count||0), recent=Number(freshness['30d']||0)+Number(freshness['90d']||0), failed=Number(analytics.failed_sitemaps||0);
+                var scanScores=Object.values(scans).map(function(x){return x&&x.scores?Number(x.scores.seo):NaN;}).filter(function(x){return !isNaN(x);});
+                var avgScan=scanScores.length?Math.round(scanScores.reduce(function(a,b){return a+b;},0)/scanScores.length):null;
+                await downloadSectionPdf({title:'Sitemap & Website Architecture Report',shortTitle:'Sitemap QA',subtitle:'Sitemap discovery, URL structure, freshness and sampled page-level SEO checks.',url:result.origin||url,filename:'sitemap-report-'+pdfHost(result.origin||url),scores:[
+                    {label:'Sitemap health',value:Math.max(0,100-failed*20),note:failed+' fetch issues'},
+                    {label:'Fresh content',value:total?Math.round(recent/total*100):0,note:recent+' URLs updated within 90 days'},
+                    {label:'Audit coverage',value:total?Math.round(scanned/total*100):0,note:scanned+' of '+total+' URLs scanned'},
+                    avgScan===null?null:{label:'Sample SEO',value:avgScan,note:scanScores.length+' scanned pages'}
+                ],sections:[
+                    {title:'Architecture summary',rows:[['URLs discovered',total],['Sitemap files',(result.sitemaps||[]).length],['Map limit reached',result.truncated?'Yes':'No'],['Pages with sampled issues',issuePages],['Strong sampled pages',strongPages]]},
+                    {title:'Sitemap sources',bullets:(result.sitemaps||[]).slice(0,20).map(function(m){return (m.url||'sitemap')+' - '+(m.status?('HTTP '+m.status):'Failed')+' - '+(m.count||0)+' URLs - '+(m.elapsed_ms||0)+' ms';})},
+                    {title:'Top URL families',rows:pathTypes.map(function(e){return ['/'+e[0],e[1]+' URLs'];})},
+                    {title:'Sampled page issues',bullets:Object.keys(scans).slice(0,25).reduce(function(out,key){var x=scans[key]||{},issues=x.seo&&x.seo.issues||[];if(issues.length)out.push(key+' - '+issues.join(' | '));else if(x.error)out.push(key+' - '+x.error);return out;},[]),note:'This sitemap report summarizes discovery and the pages scanned in this session. It is not a substitute for a full crawler when thousands of URLs need validation.'}
+                ]});
+            } catch(e) { setPdfError(e.message||'Could not create the sitemap PDF.'); }
+            finally { setPdfBusy(false); }
+        }
         var hierarchy=result?buildSitemapHierarchy(result.urls||[],result.origin||''):null;
         var analytics=result&&result.analytics||{}, pathTypes=Object.entries(analytics.path_types||{}).slice(0,8), freshness=analytics.freshness||{};
         var scanned=Object.keys(scans).length, issuePages=Object.values(scans).filter(function(x){return x&&x.seo&&(x.seo.issues||[]).length;}).length, strongPages=Object.values(scans).filter(function(x){return x&&x.scores&&x.scores.seo>=90;}).length;
@@ -1916,7 +2326,8 @@
             result?h('div',{className:'seopc-results'},
                 result.cached?h(Notice,null,'Sitemap loaded from temporary cache. Enable Fresh to bypass it.'):null,
                 (result.errors||[]).length?h(Notice,{type:'warning'},h('strong',null,(result.errors||[]).length+' sitemap fetch warning'+((result.errors||[]).length===1?'':'s')),h('details',null,h('summary',null,'Show technical details'),h('div',{className:'seopc-error-detail'},(result.errors||[]).map(function(msg,i){return h('p',{key:i},msg);})))):null,
-                h('div',{className:'seopc-report-toolbar'},h('div',null,h('strong',null,(result.url_count||0)+' URLs discovered'),h('span',null,(result.sitemaps||[]).length+' sitemap files'+(result.truncated?' · map limit reached':''))),h('div',{className:'seopc-inline-actions'},h(Button,{variant:'primary',busy:scanBusy,disabled:scanBusy||!(result.urls||[]).length,onClick:quickScan},scanBusy?'Scanning '+scanProgress.done+'/'+scanProgress.total:'Scan first 25'),h(Button,{variant:'light',onClick:exportSitemapCsv},'Export CSV'))),
+                h('div',{className:'seopc-report-toolbar'},h('div',null,h('strong',null,(result.url_count||0)+' URLs discovered'),h('span',null,(result.sitemaps||[]).length+' sitemap files'+(result.truncated?' · map limit reached':''))),h('div',{className:'seopc-inline-actions'},h(Button,{variant:'primary',busy:scanBusy,disabled:scanBusy||!(result.urls||[]).length,onClick:quickScan},scanBusy?'Scanning '+scanProgress.done+'/'+scanProgress.total:'Scan first 25'),h(Button,{variant:'light',onClick:exportSitemapCsv},'Export CSV'),h(Button,{variant:'primary',busy:pdfBusy,disabled:pdfBusy,onClick:exportSitemapPdf},pdfBusy?'Building PDF…':'Download PDF'))),
+                pdfError?h(Notice,{type:'error'},pdfError):null,
                 scanBusy?h('div',{className:'seopc-scan-progress'},h('span',{style:{width:(scanProgress.total?scanProgress.done/scanProgress.total*100:0)+'%'}}),h('b',null,scanProgress.done+' / '+scanProgress.total+' pages')):null,
                 h('div',{className:'seopc-sitemap-overview'},
                     h('div',{className:'seopc-sitemap-kpi'},h('small',null,'Discovered'),h('strong',null,result.url_count||0),h('span',null,'URLs')),
@@ -1940,10 +2351,12 @@
         var profileState=useState(null);var profileAudit=profileState[0];var setProfileAudit=profileState[1];
         var busyState=useState(false);var busy=busyState[0];var setBusy=busyState[1];
         var errorState=useState('');var error=errorState[0];var setError=errorState[1];
+        var pdfBusyState=useState(false);var pdfBusy=pdfBusyState[0];var setPdfBusy=pdfBusyState[1];
+        var pdfErrorState=useState('');var pdfError=pdfErrorState[0];var setPdfError=pdfErrorState[1];
         var freshState=useState(false);var fresh=freshState[0];var setFresh=freshState[1];
         var allPlatforms=['instagram','facebook','tiktok','linkedin','youtube','x','pinterest','threads'];
         async function scanProfiles(profiles){setProfileAudit(null);if(!profiles||!Object.keys(profiles).length)return;try{setProfileAudit(await request('seopc_toolkit_social_profiles',{profiles:JSON.stringify(profiles)},props.token));}catch(err){if(err.status===403)props.onExpired();}}
-        async function run(event){event.preventDefault();setBusy(true);setError('');setData(null);setProfileAudit(null);rememberSiteUrl(url.trim());try{var next=await request('seopc_toolkit_analyze',{url:url.trim(),fresh:fresh?'1':'0'},props.token);setData(next);var social=next&&next.seo&&next.seo.social;if(social)scanProfiles(social.profiles||{});}catch(err){setError(err.message);if(err.status===403)props.onExpired();}finally{setBusy(false);}}
+        async function run(event){event.preventDefault();setBusy(true);setError('');setData(null);setProfileAudit(null);rememberSiteUrl(url.trim());try{var next=await request('seopc_toolkit_analyze',{url:url.trim(),fresh:fresh?'1':'0'},props.token);setData(next);saveReportPart('social',{audit:next,profiles:null});var social=next&&next.seo&&next.seo.social;if(social)scanProfiles(social.profiles||{});}catch(err){setError(err.message);if(err.status===403)props.onExpired();}finally{setBusy(false);}}
         var social=data&&data.seo&&data.seo.social;var profiles=social?Object.entries(social.profiles||{}):[];var sameAs=social?(social.same_as||[]):[];
         var schemaCoverage=profiles.length?Math.round((profiles.length-(social.linked_not_in_schema||[]).length)/profiles.length*100):0;
         var metaFields=social?[social.open_graph&&social.open_graph.title,social.open_graph&&social.open_graph.description,social.open_graph&&social.open_graph.image,social.open_graph&&social.open_graph.site_name,social.twitter&&social.twitter.card,social.twitter&&social.twitter.image]:[];
@@ -1951,10 +2364,30 @@
         var linkedMap={};profiles.forEach(function(e){linkedMap[e[0]]=e[1];});var audited={};(profileAudit&&profileAudit.items||[]).forEach(function(item){audited[item.platform]=item;});
         var missingPlatforms=allPlatforms.filter(function(p){return !linkedMap[p];});
         var profileScore=profileAudit&&profileAudit.average_profile_score;
+        async function exportSocialPdf(){
+            if(!data||!social)return;setPdfBusy(true);setPdfError('');
+            try{
+                var recs=(social.recommendations||[]).concat(profileAudit&&profileAudit.recommendations||[]);
+                await downloadSectionPdf({title:'Social & Brand Presence Report',shortTitle:'Social QA',subtitle:'Brand footprint, social profile coverage, entity consistency and link-sharing metadata.',url:data.url||url,filename:'social-brand-report-'+pdfHost(data.url||url),scores:[
+                    {label:'Social readiness',value:social.score,note:'Website metadata and identity signals'},
+                    {label:'Profile coverage',value:Math.min(100,profiles.length/6*100),note:profiles.length+' linked profiles'},
+                    {label:'Schema identity',value:schemaCoverage,note:sameAs.length+' Organization sameAs URLs'},
+                    {label:'Share metadata',value:metaScore,note:'Open Graph and X/Twitter fields'},
+                    profileScore===null||profileScore===undefined?null:{label:'Profile quality',value:profileScore,note:'Only publicly verifiable profiles'}
+                ],sections:[
+                    {title:'Linked social profiles',rows:profiles.length?profiles.map(function(e){var a=audited[e[0]];return [e[0],a?(a.blocked?'Linked - verification blocked':('Linked - HTTP '+a.status)):'Linked'];}):[['Profiles','No major profile links detected']]},
+                    {title:'Entity consistency',rows:[['Organization sameAs',sameAs.length],['Linked profiles missing from schema',(social.linked_not_in_schema||[]).join(', ')||'None'],['Major networks not linked',missingPlatforms.join(', ')||'None'],['OG site name',social.open_graph&&social.open_graph.site_name||'Missing'],['X/Twitter site',social.twitter&&social.twitter.site||'Missing']]},
+                    {title:'Share preview metadata',rows:[['OG title',social.open_graph&&social.open_graph.title||'Missing'],['OG description',social.open_graph&&social.open_graph.description||'Missing'],['OG image',social.open_graph&&social.open_graph.image||'Missing'],['X card',social.twitter&&social.twitter.card||'Missing'],['X image',social.twitter&&social.twitter.image||social.open_graph&&social.open_graph.image||'Missing']]},
+                    {title:'Recommendations',bullets:recs.length?recs:['No major social sharing or brand-identity gaps were returned by the automated checks.'],note:'Some social networks block automated requests or require login. A blocked profile is treated as unverified, not automatically as a failed profile.'}
+                ]});
+            }catch(e){setPdfError(e.message||'Could not create the social PDF.');}finally{setPdfBusy(false);}
+        }
         return h('div',null,
             h('div',{className:'seopc-hero-panel seopc-hero-social'},h('div',null,h('span',{className:'seopc-eyebrow'},'Brand footprint audit'),h('h2',null,'Social presence, entity consistency & share quality'),h('p',null,'Audit linked profiles, public metadata, structured-data identity, brand handles and share creatives without pretending blocked social networks are failures.')),h('form',{className:'seopc-url-form',onSubmit:run},h('div',{className:'seopc-input-grow'},h('label',null,'Company website'),h('input',{type:'url',inputMode:'url',value:url,required:true,placeholder:'https://example.com',onChange:function(e){setUrl(e.target.value);}})),h(AjaxFreshToggle,{checked:fresh,onChange:setFresh}),h(Button,{type:'submit',variant:'primary',busy:busy,disabled:busy||!url.trim()},busy?'Auditing…':'Audit brand'))),
             error?h(Notice,{type:'error'},error):null,
             data&&social?h('div',{className:'seopc-results'},
+                h('div',{className:'seopc-report-toolbar'},h('div',null,h('strong',null,'Social & brand report'),h('span',null,'Export the results on this page as a separate client-ready PDF.')),h(Button,{variant:'primary',busy:pdfBusy,disabled:pdfBusy,onClick:exportSocialPdf},pdfBusy?'Building PDF…':'Download PDF')),
+                pdfError?h(Notice,{type:'error'},pdfError):null,
                 h('div',{className:'seopc-score-grid seopc-score-grid-compact'},h(ScoreCard,{score:social.score,label:'Social readiness'}),h(ScoreCard,{score:Math.min(100,profiles.length/6*100),label:'Profile coverage',note:profiles.length+' linked profiles'}),h(ScoreCard,{score:schemaCoverage,label:'Schema identity',note:sameAs.length+' sameAs URLs'}),h(ScoreCard,{score:metaScore,label:'Share metadata'}),profileScore!==null&&profileScore!==undefined?h(ScoreCard,{score:profileScore,label:'Profile quality',note:'Only verifiable profiles'}):null),
                 h(Section,{title:'Brand footprint matrix',subtitle:'Presence is based on links from the company website. Missing networks are opportunities to review, not automatic errors.'},h('div',{className:'seopc-social-footprint'},allPlatforms.map(function(platform){var link=linkedMap[platform],audit=audited[platform];return h('div',{key:platform,className:classNames('seopc-footprint-item',link&&'is-present',audit&&audit.state&&'is-'+audit.state)},h('span',{className:'seopc-social-icon'},platform.slice(0,1).toUpperCase()),h('div',null,h('strong',null,platform==='x'?'X / Twitter':platform),h('small',null,link?(audit?(audit.blocked?'Linked · verification blocked':('Linked · HTTP '+audit.status)):'Linked · checking profile'):'Not linked from website')),link?h('a',{href:link,target:'_blank',rel:'noopener noreferrer'},'Open'):h('span',{className:'seopc-muted-pill'},'Review'));}))),
                 profiles.length?h(Section,{title:'Profile diagnostics',subtitle:'Where public profile HTML is available, the toolkit reviews reachability, metadata, imagery and handle quality.'},h('div',{className:'seopc-social-profile-audits'},profiles.map(function(entry){var audit=audited[entry[0]];return h('article',{key:entry[0],className:'seopc-social-profile-detail'},h('div',{className:'seopc-social-profile-title'},h('span',{className:'seopc-social-icon'},entry[0].slice(0,1).toUpperCase()),h('div',null,h('strong',null,entry[0]),h('small',null,audit&&audit.handle?('@'+audit.handle):entry[1])),audit&&audit.quality_score!==null&&audit.quality_score!==undefined?h('b',{className:'seopc-mini-score is-'+scoreTone(audit.quality_score)},audit.quality_score+'/100'):h('b',{className:'seopc-status-chip is-neutral'},audit?'Unverified':'Checking')),audit?h('div',{className:'seopc-profile-detail-body'},h('p',null,audit.message),audit.checks&&audit.checks.length?h('div',{className:'seopc-profile-checks'},audit.checks.map(function(check,i){return h('span',{key:i,className:check.pass?'is-good':'is-warn'},check.pass?'✓ ':'! ',check.label);})):null,(audit.title||audit.description)?h('div',{className:'seopc-profile-meta'},audit.title?h('div',null,h('small',null,'Public title'),h('strong',null,audit.title)):null,audit.description?h('div',null,h('small',null,'Public description'),h('p',null,audit.description)):null):null):h('p',null,'Profile check in progress…'));}))) : h(Notice,{type:'warning'},'No major social profile links were detected in the initial HTML.'),
@@ -1970,37 +2403,71 @@
     function DesignQATab(props) {
         var urlState=useState(lastSiteUrl());var url=urlState[0];var setUrl=urlState[1];
         var viewportState=useState(1024);var viewport=viewportState[0];var setViewport=viewportState[1];
-        var gridState=useState(true);var grid=gridState[0];var setGrid=gridState[1];
         var freshState=useState(false);var fresh=freshState[0];var setFresh=freshState[1];
         var busyState=useState(false);var busy=busyState[0];var setBusy=busyState[1];
+        var pagesBusyState=useState(false);var pagesBusy=pagesBusyState[0];var setPagesBusy=pagesBusyState[1];
+        var pagesState=useState([]);var pages=pagesState[0];var setPages=pagesState[1];
+        var selectedState=useState({});var selected=selectedState[0];var setSelected=selectedState[1];
+        var pageFilterState=useState('');var pageFilter=pageFilterState[0];var setPageFilter=pageFilterState[1];
+        var typeFilterState=useState('all');var typeFilter=typeFilterState[0];var setTypeFilter=typeFilterState[1];
+        var pdfScopeState=useState('selected');var pdfScope=pdfScopeState[0];var setPdfScope=pdfScopeState[1];
+        var pdfQualityState=useState('balanced');var pdfQuality=pdfQualityState[0];var setPdfQuality=pdfQualityState[1];
+        var pdfDetailState=useState('visual');var pdfDetail=pdfDetailState[0];var setPdfDetail=pdfDetailState[1];
         var auditState=useState(null);var audit=auditState[0];var setAudit=auditState[1];
         var previewState=useState(null);var preview=previewState[0];var setPreview=previewState[1];
         var previewKeyState=useState(0);var previewKey=previewKeyState[0];var setPreviewKey=previewKeyState[1];
-        var previewBusyState=useState(false);var previewBusy=previewBusyState[0];var setPreviewBusy=previewBusyState[1];
+        var pdfBusyState=useState(false);var pdfBusy=pdfBusyState[0];var setPdfBusy=pdfBusyState[1];
+        var pdfProgressState=useState('');var pdfProgress=pdfProgressState[0];var setPdfProgress=pdfProgressState[1];
         var errorState=useState('');var error=errorState[0];var setError=errorState[1];
-        var fileState=useState(null);var file=fileState[0];var setFile=fileState[1];
-        var imageState=useState(null);var imageObj=imageState[0];var setImageObj=imageState[1];
-        var measureState=useState(null);var measure=measureState[0];var setMeasure=measureState[1];
-        var canvasRef=useRef(null);var dragRef=useRef(null);var scaleRef=useRef(1);
-        useEffect(function(){if(!file){setImageObj(null);return;}var reader=new FileReader();reader.onload=function(){var img=new Image();img.onload=function(){setImageObj(img);};img.src=reader.result;};reader.readAsDataURL(file);},[file]);
-        useEffect(function(){var canvas=canvasRef.current;if(!canvas||!imageObj)return;var max=1100,scale=Math.min(1,max/imageObj.width);scaleRef.current=scale;canvas.width=Math.round(imageObj.width*scale);canvas.height=Math.round(imageObj.height*scale);var ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);ctx.drawImage(imageObj,0,0,canvas.width,canvas.height);if(grid){ctx.save();ctx.strokeStyle='rgba(16,185,129,.24)';ctx.lineWidth=1;var step=Math.max(4,8*scale);for(var x=0;x<canvas.width;x+=step){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,canvas.height);ctx.stroke();}for(var y=0;y<canvas.height;y+=step){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(canvas.width,y);ctx.stroke();}ctx.restore();}if(measure){ctx.save();ctx.strokeStyle='#6d4bc3';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.strokeRect(measure.x,measure.y,measure.w,measure.h);ctx.fillStyle='#102a23';ctx.font='600 12px system-ui';ctx.fillText(Math.round(measure.w/scale)+' × '+Math.round(measure.h/scale)+' px',measure.x+6,Math.max(14,measure.y-7));ctx.restore();}},[imageObj,grid,measure]);
-        async function run(event){event.preventDefault();setBusy(true);setError('');setAudit(null);setPreview(null);rememberSiteUrl(url.trim());try{var settled=await Promise.allSettled([request('seopc_toolkit_analyze',{url:url.trim(),fresh:fresh?'1':'0'},props.token),request('seopc_toolkit_design_preview',{url:url.trim(),fresh:fresh?'1':'0'},props.token)]);if(settled[0].status==='fulfilled')setAudit(settled[0].value);else throw settled[0].reason;if(settled[1].status==='fulfilled')setPreview(settled[1].value);else setError('Design checks completed, but preview snapshot could not load: '+settled[1].reason.message);}catch(err){setError(err.message);if(err.status===403)props.onExpired();}finally{setBusy(false);}}
-        async function refreshSnapshot(){if(!url.trim())return;setPreviewBusy(true);setError('');try{var data=await request('seopc_toolkit_design_preview',{url:url.trim(),fresh:'1'},props.token);setPreview(data);setPreviewKey(function(v){return v+1;});}catch(err){setError('Preview refresh failed: '+err.message);if(err.status===403)props.onExpired();}finally{setPreviewBusy(false);}}
-        function pos(e){var c=canvasRef.current,r=c.getBoundingClientRect();return{x:(e.clientX-r.left)*(c.width/r.width),y:(e.clientY-r.top)*(c.height/r.height)};}function down(e){if(!imageObj)return;dragRef.current=pos(e);setMeasure(null);}function move(e){if(!dragRef.current)return;var a=dragRef.current,b=pos(e);setMeasure({x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),w:Math.abs(b.x-a.x),h:Math.abs(b.y-a.y)});}function up(){dragRef.current=null;}
-        var design=audit&&audit.design,safeUrl=audit&&audit.url,originalScale=scaleRef.current||1;
+        var pdfErrorState=useState('');var pdfError=pdfErrorState[0];var setPdfError=pdfErrorState[1];
+        var deviceState=useState({phone:true,tablet:true,laptop:true,desktop:true,iphone_se:false,iphone_max:false,pixel:false,ipad_mini:false,ipad_pro:false,laptop_hd:false,qhd:false});var deviceSelection=deviceState[0];var setDeviceSelection=deviceState[1];
+        var auditCacheRef=useRef({});
+        var pdfCancelRef=useRef(false);
+        var manualState=useState({'Header and navigation fit without overlap':false,'Hero artwork and key imagery are not cropped':false,'No horizontal scrolling or clipped content':false,'Buttons and links have comfortable touch spacing':false,'Forms remain readable and usable on mobile':false,'Sticky/fixed UI does not cover important content':false,'Typography remains readable at phone and tablet sizes':false,'Footer and cookie/PWA overlays do not collide':false});var manualChecks=manualState[0];var setManualChecks=manualState[1];
+        var devices=[{key:'phone',name:'iPhone 15',width:393,height:852},{key:'tablet',name:'iPad Air',width:820,height:1180},{key:'laptop',name:'MacBook Air 13',width:1440,height:900},{key:'desktop',name:'Desktop HD',width:1920,height:1080},{key:'iphone_se',name:'iPhone SE',width:375,height:667},{key:'iphone_max',name:'iPhone 15 Pro Max',width:430,height:932},{key:'pixel',name:'Pixel 8',width:412,height:915},{key:'ipad_mini',name:'iPad mini',width:768,height:1024},{key:'ipad_pro',name:'iPad Pro 12.9',width:1024,height:1366},{key:'laptop_hd',name:'Laptop HD',width:1366,height:768},{key:'qhd',name:'Desktop QHD',width:2560,height:1440}];
+        var typeDefs=[['all','All'],['page','Pages'],['post','Posts'],['product','Products'],['product_category','Product categories'],['category','Categories'],['tag','Tags'],['author','Authors'],['other','Other']];
+        function classifyPage(p){if(p.content_type)return p.content_type;var group=String(p.group||'').toLowerCase(),path=String(p.path||'').toLowerCase();if(group.indexOf('product_cat')>=0||group.indexOf('product-category')>=0||path.indexOf('/product-category/')===0)return 'product_category';if(group.indexOf('product')>=0||path.indexOf('/product/')===0)return 'product';if(group.indexOf('page')>=0)return 'page';if(group.indexOf('post')>=0)return 'post';if(group.indexOf('category')>=0||path.indexOf('/category/')===0)return 'category';if(group.indexOf('tag')>=0||path.indexOf('/tag/')===0)return 'tag';if(group.indexOf('author')>=0||path.indexOf('/author/')===0)return 'author';return path==='/'||path===''?'page':'other';}
+        function normalizePage(x){return {url:x.url,path:x.path||'',lastmod:x.lastmod||'',group:x.group||'',content_type:x.content_type||classifyPage(x)};}
+        async function loadPages(){if(!url.trim())return;setPagesBusy(true);setError('');rememberSiteUrl(url.trim());try{var data=await request('seopc_toolkit_sitemap',{url:url.trim(),limit:'500',fresh:fresh?'1':'0'},props.token);var list=(data.urls||[]).map(normalizePage);if(!list.some(function(x){return x.url.replace(/\/$/,'')===url.trim().replace(/\/$/,'');}))list.unshift(normalizePage({url:url.trim(),path:'/',lastmod:'',content_type:'page'}));setPages(list);var pick={};list.slice(0,Math.min(12,list.length)).forEach(function(x){pick[x.url]=true;});setSelected(pick);setTypeFilter('all');setPdfScope('selected');}catch(err){setError('Could not load website pages: '+err.message);if(err.status===403)props.onExpired();}finally{setPagesBusy(false);}}
+        async function run(e){if(e)e.preventDefault();if(!url.trim())return;setBusy(true);setError('');rememberSiteUrl(url.trim());try{var results=await Promise.allSettled([request('seopc_toolkit_analyze',{url:url.trim(),fresh:fresh?'1':'0'},props.token),request('seopc_toolkit_design_preview',{url:url.trim(),fresh:fresh?'1':'0'},props.token)]);if(results[0].status==='rejected')throw results[0].reason;setAudit(results[0].value);if(results[1].status==='fulfilled'){setPreview(results[1].value);setPreviewKey(function(v){return v+1;});}else{setPreview(null);setError('The automated audit completed, but the visual preview could not be built: '+results[1].reason.message);}}catch(err){setError(err.message);if(err.status===403)props.onExpired();}finally{setBusy(false);}}
+        function toggleSelected(pageUrl){setSelected(function(old){var next=Object.assign({},old);next[pageUrl]=!next[pageUrl];return next;});}
+        function setSelectionFor(list,value){setSelected(function(old){var next=Object.assign({},old);list.forEach(function(p){next[p.url]=value;});return next;});}
+        function toggleManual(label){setManualChecks(function(old){var next=Object.assign({},old);next[label]=!next[label];return next;});}
+        function toggleDevice(key){setDeviceSelection(function(old){var next=Object.assign({},old);next[key]=!next[key];return next;});}
+        function pageName(p){try{var u=new URL(p.url);return u.pathname==='/'?'Home':decodeURIComponent(u.pathname.replace(/^\/+|\/+$/g,''))||'Home';}catch(e){return p.url;}}
+        var typeCounts={};pages.forEach(function(p){var t=classifyPage(p);typeCounts[t]=(typeCounts[t]||0)+1;});
+        var filteredPages=pages.filter(function(p){var q=pageFilter.trim().toLowerCase(),typeOk=typeFilter==='all'||classifyPage(p)===typeFilter;return typeOk&&(!q||p.url.toLowerCase().indexOf(q)>=0||String(p.path||'').toLowerCase().indexOf(q)>=0);});
+        var selectedCount=pages.filter(function(p){return !!selected[p.url];}).length;
+        function scopePages(){if(pdfScope==='all')return pages.slice();if(pdfScope==='visible')return filteredPages.slice();if(pdfScope.indexOf('type:')===0){var t=pdfScope.slice(5);return pages.filter(function(p){return classifyPage(p)===t;});}return pages.filter(function(p){return !!selected[p.url];});}
+        var scopedCount=scopePages().length;
+        var activeDeviceCount=devices.filter(function(d){return !!deviceSelection[d.key];}).length;
+        var totalCaptureCount=scopedCount*activeDeviceCount;
+        async function mapLimit(items,limit,worker){var out=new Array(items.length),next=0,done=0;async function runner(){while(true){var i=next++;if(i>=items.length)return;out[i]=await worker(items[i],i);done++;setPdfProgress('Testing pages '+done+'/'+items.length+' · cached results are reused');}}var jobs=[];for(var j=0;j<Math.min(limit,items.length);j++)jobs.push(runner());await Promise.all(jobs);return out;}
+        async function testReportPage(p,includeAudit){var detailKey=includeAudit?'full':'visual';var cacheKey=(fresh?'fresh:':'cached:')+detailKey+':'+p.url;if(!fresh&&auditCacheRef.current[cacheKey])return auditCacheRef.current[cacheKey];var previewReq=request('seopc_toolkit_design_preview',{url:p.url,fresh:fresh?'1':'0'},props.token);var item;if(includeAudit){var settled=await Promise.allSettled([request('seopc_toolkit_analyze',{url:p.url,fresh:fresh?'1':'0'},props.token),previewReq]);item={url:p.url,content_type:classifyPage(p),audit:settled[0].status==='fulfilled'?settled[0].value:{url:p.url,design:{score:0,issues:['Could not complete automated design analysis for this page: '+settled[0].reason.message]}},preview:settled[1].status==='fulfilled'?settled[1].value:null};}else{var previewResult=await previewReq;item={url:p.url,content_type:classifyPage(p),audit:null,preview:previewResult};}if(!fresh)auditCacheRef.current[cacheKey]=item;return item;}
+        async function saveDevicePdf(device){var chosen=scopePages();if(!chosen.length){setPdfError('The selected PDF scope has no pages.');return;}if(!device){setPdfError('Choose a device size.');return;}var includeAudit=pdfDetail==='full';pdfCancelRef.current=false;setPdfBusy(true);setPdfError('');setPdfProgress('Preparing '+chosen.length+' pages for '+device.name+'…');try{var reportPages=await mapLimit(chosen,2,async function(p){if(pdfCancelRef.current)throw new Error('Report cancelled.');return testReportPage(p,includeAudit);});if(pdfCancelRef.current)throw new Error('Report cancelled.');setPdfProgress('Building '+device.name+' PDF · '+chosen.length+' fresh screenshots…');await downloadDesignQaDevicePdf(reportPages,device,manualChecks,function(info){if(pdfCancelRef.current)throw new Error('Report cancelled.');setPdfProgress('Capturing '+info.label+' · '+info.page+'/'+info.pages);},{quality:pdfQuality,includeFindings:includeAudit,shouldCancel:function(){return pdfCancelRef.current;}});setPdfProgress('');}catch(e){if((e.message||'')!=='Report cancelled.')setPdfError(e.message||'Could not create the device PDF.');else setPdfProgress('Report cancelled.');}finally{setPdfBusy(false);}}
+        function cancelPdf(){pdfCancelRef.current=true;setPdfProgress('Stopping after the current capture…');}
+        var design=audit&&audit.design,safeUrl=audit&&audit.url;
+        function signalCard(label,value,note,tone){return h('div',{className:'seopc-design-signal is-'+(tone||'neutral')},h('strong',null,value),h('span',null,label),note?h('small',null,note):null);}
         return h('div',null,
-            h('div',{className:'seopc-hero-panel seopc-hero-design'},h('div',null,h('span',{className:'seopc-eyebrow'},'Design QA'),h('h2',null,'Responsive QA with a reliable sandbox preview'),h('p',null,'Use a safe server-HTML snapshot for responsive review, then combine automated layout-risk checks with a pixel-accurate screenshot ruler.')),h('form',{className:'seopc-url-form',onSubmit:run},h('div',{className:'seopc-input-grow'},h('label',null,'Website URL'),h('input',{type:'url',value:url,required:true,placeholder:'https://example.com',onChange:function(e){setUrl(e.target.value);}})),h('label',null,'Viewport',h('select',{value:viewport,onChange:function(e){setViewport(Number(e.target.value));}},h('option',{value:375},'375 mobile'),h('option',{value:768},'768 tablet'),h('option',{value:1024},'1024 laptop'),h('option',{value:1440},'1440 desktop'),h('option',{value:1920},'1920 wide'))),h(AjaxFreshToggle,{checked:fresh,onChange:setFresh}),h(Button,{type:'submit',variant:'primary',busy:busy,disabled:busy||!url.trim()},busy?'Building preview…':'Run design QA'))),
+            h('div',{className:'seopc-hero-panel seopc-hero-design'},h('div',null,h('span',{className:'seopc-eyebrow'},'Design QA'),h('h2',null,'Multi-page responsive QA & visual PDF'),h('p',null,'Discover the website, filter by content type, select whole groups or individual URLs, then export an optimised high-quality visual report.')),h('form',{className:'seopc-url-form',onSubmit:function(e){e.preventDefault();loadPages();}},h('div',{className:'seopc-input-grow'},h('label',null,'Website URL'),h('input',{type:'url',value:url,required:true,placeholder:'https://example.com',onChange:function(e){setUrl(e.target.value);}})),h(AjaxFreshToggle,{checked:fresh,onChange:setFresh}),h(Button,{type:'submit',variant:'primary',busy:pagesBusy,disabled:pagesBusy||!url.trim()},pagesBusy?'Loading pages…':'1. Load website pages'))),
             error?h(Notice,{type:error.indexOf('completed')>=0?'warning':'error'},error):null,
+            h('div',{className:'seopc-external-test-links'},h('span',null,'Real-browser links:'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://responsivetool.com/?url='+encodeURIComponent((safeUrl||url.trim())||'')+'&phone=iphone-15&desktop=macbook-air-13&ipad=ipad-air'},'ResponsiveTool'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://responsivly.com/'},'Responsivly'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://wavespeed.ai/free-tools/responsive-tester'},'WaveSpeed'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://www.eazystudio.com/device-preview-tool/'},'EazyStudio'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://www.browserstack.com/live'},'BrowserStack')),
+            pages.length?h(Section,{title:'2. Choose pages for the PDF',subtitle:'Filter by WordPress/WooCommerce content type, select complete groups, or tick individual URLs.'},
+                h('div',{className:'seopc-page-type-filters'},typeDefs.map(function(def){var count=def[0]==='all'?pages.length:(typeCounts[def[0]]||0);return h('button',{type:'button',key:def[0],className:typeFilter===def[0]?'is-active':'',onClick:function(){setTypeFilter(def[0]);}},h('span',null,def[1]),h('b',null,count));})),
+                h('div',{className:'seopc-page-picker-toolbar'},h('input',{type:'search',value:pageFilter,placeholder:'Filter URLs or paths…',onChange:function(e){setPageFilter(e.target.value);}}),h('div',{className:'seopc-inline-actions'},h(Button,{variant:'light',onClick:function(){setSelectionFor(pages,true);}},'Select all'),h(Button,{variant:'light',onClick:function(){setSelectionFor(pages,false);}},'Unselect all'),h(Button,{variant:'light',onClick:function(){setSelectionFor(filteredPages,true);}},'Select filtered'),h(Button,{variant:'light',onClick:function(){setSelectionFor(filteredPages,false);}},'Clear filtered'),h('strong',null,selectedCount+' selected / '+pages.length+' found'))),
+                h('div',{className:'seopc-page-picker'},filteredPages.map(function(p){return h('label',{key:p.url,className:selected[p.url]?'is-selected':''},h('input',{type:'checkbox',checked:!!selected[p.url],onChange:function(){toggleSelected(p.url);}}),h('span',{className:'seopc-page-picker-copy'},h('strong',null,pageName(p)),h('small',null,p.url)),h('span',{className:'seopc-page-type-badge'},(typeDefs.find(function(d){return d[0]===classifyPage(p);})||['','Other'])[1]),p.lastmod?h('time',null,p.lastmod.slice(0,10)):null);})),
+                h('div',{className:'seopc-report-options'},h('label',null,h('span',null,'PDF scope'),h('select',{value:pdfScope,onChange:function(e){setPdfScope(e.target.value);}},h('option',{value:'selected'},'Selected checkboxes ('+selectedCount+')'),h('option',{value:'visible'},'Current filtered view ('+filteredPages.length+')'),h('option',{value:'all'},'All discovered pages ('+pages.length+')'),typeDefs.filter(function(d){return d[0]!=='all'&&(typeCounts[d[0]]||0)>0;}).map(function(d){return h('option',{key:d[0],value:'type:'+d[0]},d[1]+' only ('+(typeCounts[d[0]]||0)+')');}))),h('label',null,h('span',null,'PDF quality'),h('select',{value:pdfQuality,onChange:function(e){setPdfQuality(e.target.value);}},h('option',{value:'fast'},'Fast · smaller PDF'),h('option',{value:'balanced'},'Smart · recommended'),h('option',{value:'high'},'High · client quality'),h('option',{value:'print'},'Print · sharpest / slower'))),h('label',null,h('span',null,'Report content'),h('select',{value:pdfDetail,onChange:function(e){setPdfDetail(e.target.value);}},h('option',{value:'visual'},'Visual only · fastest'),h('option',{value:'full'},'Visual + QA findings'))),h('div',{className:'seopc-scope-count'},h('strong',null,scopedCount),h('span',null,'pages will be included'))),
+                h('div',{className:'seopc-device-choice'},h('strong',null,'PDF device views'),h('small',null,'Choose the device reports you need. Each device is exported as a separate PDF for better speed, stability and screenshot quality.'),devices.map(function(d){return h('label',{key:d.key},h('input',{type:'checkbox',checked:!!deviceSelection[d.key],onChange:function(){toggleDevice(d.key);}}),h('span',null,d.name+' '+d.width+'×'+d.height));})),h('div',{className:'seopc-capture-estimate'},h('strong',null,scopedCount+' screenshots per device PDF'),h('span',null,activeDeviceCount+' device reports selected. Separate reports avoid '+totalCaptureCount+' screenshots being held in one huge PDF build.')),
+                h('div',{className:'seopc-report-toolbar seopc-report-toolbar-spaced'},h('div',null,h('strong',null,'3. Download device reports'),h('span',null,'Recommended workflow: generate one device PDF at a time. A fresh iframe is created for every page at the exact target viewport, avoiding the broken black/cropped captures caused by cross-device iframe resizing.')),h('div',{className:'seopc-report-actions seopc-device-pdf-actions'},devices.filter(function(d){return !!deviceSelection[d.key];}).map(function(d){return h(Button,{key:d.key,variant:'primary',onClick:function(){saveDevicePdf(d);},busy:pdfBusy,disabled:pdfBusy||scopedCount===0},pdfBusy?'Building…':'PDF · '+d.name);}),pdfBusy?h(Button,{onClick:cancelPdf},'Cancel'):null)),pdfProgress?h(Notice,{type:'info'},pdfProgress):null,pdfError?h(Notice,{type:'error'},pdfError):null
+            ):h(Section,{title:'Page discovery'},h(Notice,{type:'info'},'Enter the website URL and click “Load website pages”. The sitemap list will appear here with content-type filters and PDF controls.')),
+            h(Section,{title:'Single-page live QA',subtitle:'Use this when you want to inspect one page interactively before producing the multi-page PDF.'},h('form',{className:'seopc-url-form seopc-url-form-compact',onSubmit:run},h('div',{className:'seopc-input-grow'},h('label',null,'Page URL'),h('input',{type:'url',value:url,required:true,onChange:function(e){setUrl(e.target.value);}})),h('label',null,'Preview width',h('select',{value:viewport,onChange:function(e){setViewport(Number(e.target.value));}},[375,393,430,768,820,1024,1366,1440,1920].map(function(v){return h('option',{key:v,value:v},v+' px');}))),h(Button,{type:'submit',variant:'light',busy:busy,disabled:busy||!url.trim()},busy?'Testing…':'Run single-page QA'))),
             audit&&design?h('div',{className:'seopc-results'},
-                h('div',{className:'seopc-design-scorebar'},h(ScoreCard,{score:design.score,label:'Design QA'}),h('div',{className:'seopc-design-kpis'},h('div',null,h('strong',null,design.fixed_width_count||0),h('span',null,'Fixed-width risks')),h('div',null,h('strong',null,design.missing_image_dimensions||0),h('span',null,'Images missing dimensions')),h('div',null,h('strong',null,design.unlabelled_controls||0),h('span',null,'Unlabelled controls')),h('div',null,h('strong',null,design.tiny_text_count||0),h('span',null,'Tiny inline text')))),
-                h(Section,{title:'Sandbox breakpoint preview',subtitle:preview?preview.note:'Preparing a script-free server-HTML snapshot so X-Frame-Options and CSP cannot produce a broken grey frame.'},
-                    h('div',{className:'seopc-preview-toolbar'},h('div',{className:'seopc-breakpoint-pills'},[375,768,1024,1440,1920].map(function(v){return h('button',{key:v,type:'button',className:viewport===v?'is-active':'',onClick:function(){setViewport(v);}},v+'px');})),h('div',{className:'seopc-inline-actions'},preview&&preview.html?h(Button,{variant:'light',onClick:function(){setPreviewKey(function(v){return v+1;});}},'Reload preview'):null,h(Button,{variant:'primary',busy:previewBusy,disabled:previewBusy||!url.trim(),onClick:refreshSnapshot},previewBusy?'Refreshing…':'Refresh snapshot'),safeUrl?h('a',{href:safeUrl,target:'_blank',rel:'noopener noreferrer',className:'seopc-btn seopc-btn-light'},'Open live page'):null)),
-                    preview&&preview.html?h('div',{className:'seopc-browser-frame'},h('div',{className:'seopc-browser-bar'},h('span'),h('span'),h('span'),h('b',null,viewport+'px · server snapshot')),h('div',{className:'seopc-browser-stage seopc-browser-stage-srcdoc'},h('iframe',{key:previewKey,srcDoc:preview.html,title:'Website design preview snapshot',sandbox:'',referrerPolicy:'no-referrer',style:{width:viewport+'px'}}))):h('div',{className:'seopc-frame-blocked'},h('span',{className:'seopc-spinner'}),h('strong',null,'Preview snapshot unavailable'),h('p',null,'The automated checks still work. Refresh the snapshot or open the page directly if the host blocks server fetching.'),safeUrl?h('a',{href:safeUrl,target:'_blank',rel:'noopener noreferrer',className:'seopc-btn seopc-btn-primary'},'Open website'):null)
-                ),
-                h('div',{className:'seopc-two-col'},h(Section,{title:'Automated layout risks'},(design.issues||[]).length?h('ul',{className:'seopc-issue-list'},design.issues.map(function(issue,i){return h('li',{key:i},h('span',null,'!'),h('div',null,issue));})):h(Notice,{type:'success'},'No obvious server-HTML design risks were detected.')),h(Section,{title:'What this QA can verify'},h('div',{className:'seopc-practice-grid seopc-practice-grid-single'},h('div',null,h('strong',null,'Responsive snapshot'),h('p',null,'Renders fetched HTML and styles in a sandbox at common widths without executing target-site scripts.')),h('div',null,h('strong',null,'Layout-shift signals'),h('p',null,'Flags images without explicit dimensions and large inline fixed widths that can hurt responsive layouts.')),h('div',null,h('strong',null,'Form labelling'),h('p',null,'Flags form controls that appear to have no label or ARIA labelling in the initial HTML.')))))
-            ):null,
-            h(Section,{title:'Screenshot pixel ruler',subtitle:'Upload a screenshot from any browser/device, drag over an area and read the original-image pixel dimensions. The 8px grid helps spot inconsistent padding.'},h('div',{className:'seopc-design-controls'},h('label',{className:'seopc-dropzone seopc-dropzone-small'},h('input',{type:'file',accept:'image/*',onChange:function(e){setFile(e.target.files&&e.target.files[0]||null);}}),h('strong',null,file?file.name:'Upload screenshot'),h('span',null,'PNG, JPG, WebP')),h('label',{className:'seopc-toggle'},h('input',{type:'checkbox',checked:grid,onChange:function(e){setGrid(e.target.checked);}}),h('span',null,'8px spacing grid')),measure?h('div',{className:'seopc-measure-readout'},h('strong',null,Math.round(measure.w/originalScale)+' × '+Math.round(measure.h/originalScale)+' px'),h('span',null,'x '+Math.round(measure.x/originalScale)+' · y '+Math.round(measure.y/originalScale))):null),imageObj?h('div',{className:'seopc-canvas-wrap'},h('canvas',{ref:canvasRef,onMouseDown:down,onMouseMove:move,onMouseUp:up,onMouseLeave:up})):h('div',{className:'seopc-empty-canvas'},'Upload a screenshot to start measuring.'))
-        );
+                h('div',{className:'seopc-design-scorebar'},h(ScoreCard,{score:design.score,label:'Design QA'}),h('div',{className:'seopc-design-kpis'},h('div',null,h('strong',null,design.fixed_width_count||0),h('span',null,'Fixed-width risks')),h('div',null,h('strong',null,design.missing_image_dimensions||0),h('span',null,'Missing dimensions')),h('div',null,h('strong',null,design.unlabelled_controls||0),h('span',null,'Unlabelled controls')),h('div',null,h('strong',null,design.duplicate_id_count||0),h('span',null,'Duplicate IDs')))),
+                h(Section,{title:'Automated responsive & UX signals'},h('div',{className:'seopc-design-signal-grid'},signalCard('Viewport meta',design.viewport?'Present':'Missing',design.viewport||'Required for mobile layouts',design.viewport?'good':'bad'),signalCard('Responsive images',design.responsive_image_count||0,(design.missing_srcset_count||0)+' without srcset/sizes',(design.missing_srcset_count||0)>3?'warn':'good'),signalCard('Fixed / sticky UI',(design.fixed_position_count||0)+' / '+(design.sticky_position_count||0),'Review overlays at small heights',(design.fixed_position_count||0)>3?'warn':'neutral'),signalCard('Unnamed actions',design.unnamed_action_count||0,'Links/buttons without accessible names',(design.unnamed_action_count||0)?'bad':'good'))),
+                preview&&preview.html?h(Section,{title:'Current page responsive preview'},h('div',{className:'seopc-browser-frame'},h('div',{className:'seopc-browser-bar'},h('span'),h('span'),h('span'),h('b',null,viewport+'px - server snapshot')),h('div',{className:'seopc-browser-stage seopc-browser-stage-srcdoc'},h('iframe',{key:previewKey,srcDoc:preview.html,title:'Website design preview snapshot',sandbox:'allow-same-origin',referrerPolicy:'no-referrer',style:{width:viewport+'px'}})))):null,
+                h('div',{className:'seopc-two-col'},h(Section,{title:'Automated findings'},(design.issues||[]).length?h('ul',{className:'seopc-issue-list'},design.issues.map(function(issue,i){return h('li',{key:i},h('span',null,'!'),h('div',null,issue));})):h(Notice,{type:'success'},'No obvious server-HTML design risks were detected.')),h(Section,{title:'Manual visual QA checklist'},h('div',{className:'seopc-design-checklist'},Object.keys(manualChecks).map(function(label){return h('label',{key:label,className:manualChecks[label]?'is-checked':''},h('input',{type:'checkbox',checked:!!manualChecks[label],onChange:function(){toggleManual(label);}}),h('span',null,label));}))))
+            ):null)
+        ;
     }
 
     function ImageStudioTab(props) {
@@ -2171,7 +2638,7 @@
             { id: 'video', label: 'Video', icon: 'video' },
             { id: 'convert', label: 'Convert', icon: 'convert' },
             { id: 'search', label: 'Free Media', icon: 'search' },
-            { id: 'network', label: 'DNS & Server', icon: 'network' }
+            { id: 'network', label: 'DNS & Server', icon: 'network' },
         ];
         return h('div', { className: 'seopc-toolkit-shell' },
             h('header', { className: 'seopc-toolkit-header' },

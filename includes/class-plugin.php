@@ -26,6 +26,7 @@ class SEOPC_Plugin {
         new SEOPC_Keyword_Tracker();
         new SEOPC_Competitor_Benchmark();
         new SEOPC_Media_Tools();
+        new SEOPC_Responsive_Browser_Test();
         new SEOPC_Dynamic_Overrides();
         new SEOPC_Meta_Import_Export();
         new SEOPC_Frontend_Toolkit();

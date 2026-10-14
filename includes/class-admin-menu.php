@@ -29,6 +29,7 @@ class SEOPC_Admin_Menu {
             'meta-analyzer' => __('Meta Analyzer', 'seo-performance-checker'),
             'sitemap' => __('Sitemap Manager', 'seo-performance-checker'),
             'media-tools' => __('Media Tools', 'seo-performance-checker'),
+            'responsive-browser' => __('Responsive & Browser Test', 'seo-performance-checker'),
             'frontend-toolkit' => __('Front-end Toolkit', 'seo-performance-checker'),
             'dynamic-overrides' => __('Dynamic Overrides', 'seo-performance-checker'),
             'meta-import-export' => __('Meta Import / Export', 'seo-performance-checker'),
@@ -71,6 +72,12 @@ class SEOPC_Admin_Menu {
         if ($tab === 'media-tools' && class_exists('SEOPC_Media_Tools')) {
             $media_tools = new SEOPC_Media_Tools();
             $media_tools->render_admin_page();
+            return;
+        }
+
+        if ($tab === 'responsive-browser' && class_exists('SEOPC_Responsive_Browser_Test')) {
+            $responsive_browser_test = new SEOPC_Responsive_Browser_Test();
+            $responsive_browser_test->render_admin_page();
             return;
         }
 

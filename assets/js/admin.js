@@ -948,3 +948,250 @@
     });
     
 })(jQuery);
+(function($) {
+    'use strict';
+
+    $(function() {
+        var $page = $('.seopc-responsive-browser-page');
+        if (!$page.length) {
+            return;
+        }
+
+        var $url = $('#seopc-rbt-url');
+        var $frame = $('#seopc-rbt-frame');
+        var $shell = $('#seopc-rbt-shell');
+        var $stage = $('#seopc-rbt-stage');
+        var $name = $('#seopc-rbt-device-name');
+        var $dimensions = $('#seopc-rbt-dimensions');
+        var $width = $('#seopc-rbt-width');
+        var $height = $('#seopc-rbt-height');
+        var currentWidth = 393;
+        var currentHeight = 852;
+        var currentName = 'iPhone 15';
+
+        function normalizeUrl(value) {
+            value = String(value || '').trim();
+            if (!value) {
+                return '';
+            }
+            if (!/^https?:\/\//i.test(value)) {
+                value = 'https://' + value;
+            }
+            try {
+                var parsed = new URL(value);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+                    return '';
+                }
+                return parsed.href;
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function currentUrl() {
+            return normalizeUrl($url.val());
+        }
+
+        function setViewport(width, height, name) {
+            currentWidth = Math.max(240, Math.min(3840, parseInt(width, 10) || 393));
+            currentHeight = Math.max(320, Math.min(2160, parseInt(height, 10) || 852));
+            currentName = name || 'Custom';
+            $width.val(currentWidth);
+            $height.val(currentHeight);
+            $name.text(currentName);
+            $dimensions.text(currentWidth + ' × ' + currentHeight);
+            updateScale();
+        }
+
+        function updateScale() {
+            var manualScale = parseFloat($('#seopc-rbt-scale').val()) || 0.75;
+            var available = Math.max(280, $stage.innerWidth() - 40);
+            var fitScale = Math.min(1, available / currentWidth);
+            var scale = Math.min(manualScale, fitScale);
+            $shell.css({
+                width: currentWidth + 'px',
+                height: (currentHeight + 42) + 'px',
+                transform: 'scale(' + scale + ')'
+            });
+            $stage.css('min-height', Math.max(480, Math.round((currentHeight + 42) * scale) + 40) + 'px');
+        }
+
+        function loadPreview() {
+            var url = currentUrl();
+            if (!url) {
+                window.alert('Please enter a valid http:// or https:// URL.');
+                return;
+            }
+            $url.val(url);
+            $('#seopc-rbt-address').text(url);
+            $frame.attr('src', 'about:blank');
+            window.setTimeout(function() {
+                $frame.attr('src', url);
+            }, 40);
+            refreshCompare();
+        }
+
+        function compareCard(label, width, height) {
+            var url = currentUrl();
+            var maxHeight = 620;
+            var scale = Math.min(0.58, 420 / width, maxHeight / height);
+            var scaledW = Math.round(width * scale);
+            var scaledH = Math.round(height * scale);
+            return '<div class="seopc-rbt-compare-card">' +
+                '<div class="seopc-rbt-compare-title"><strong>' + label + '</strong><span>' + width + ' × ' + height + '</span></div>' +
+                '<div class="seopc-rbt-compare-viewport" style="height:' + (scaledH + 34) + 'px">' +
+                '<div class="seopc-rbt-compare-scaler" style="width:' + width + 'px;height:' + height + 'px;transform:scale(' + scale + ');">' +
+                '<iframe src="' + $('<div>').text(url).html() + '" title="' + label + ' preview"></iframe>' +
+                '</div></div></div>';
+        }
+
+        function refreshCompare() {
+            var $section = $('#seopc-rbt-compare-section');
+            if ($section.prop('hidden')) {
+                return;
+            }
+            var url = currentUrl();
+            if (!url) {
+                return;
+            }
+            $('#seopc-rbt-compare-grid').html(
+                compareCard('iPhone 15', 393, 852) +
+                compareCard('iPad Air', 820, 1180) +
+                compareCard('MacBook Air 13', 1440, 900)
+            );
+        }
+
+        $('#seopc-rbt-load').on('click', loadPreview);
+        $url.on('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                loadPreview();
+            }
+        });
+
+        $('#seopc-rbt-device-list').on('click', '.seopc-rbt-device', function() {
+            $('.seopc-rbt-device').removeClass('is-active');
+            $(this).addClass('is-active');
+            setViewport($(this).data('width'), $(this).data('height'), $(this).data('name'));
+        });
+
+        $('#seopc-rbt-apply-size').on('click', function() {
+            $('.seopc-rbt-device').removeClass('is-active');
+            setViewport($width.val(), $height.val(), 'Custom viewport');
+        });
+
+        $('#seopc-rbt-rotate').on('click', function() {
+            var oldWidth = currentWidth;
+            currentWidth = currentHeight;
+            currentHeight = oldWidth;
+            $('.seopc-rbt-device').removeClass('is-active');
+            setViewport(currentWidth, currentHeight, currentName + ' rotated');
+        });
+
+        $('#seopc-rbt-reload').on('click', function() {
+            var src = $frame.attr('src');
+            $frame.attr('src', 'about:blank');
+            window.setTimeout(function() { $frame.attr('src', src); }, 40);
+        });
+
+        $('#seopc-rbt-open').on('click', function() {
+            var url = currentUrl();
+            if (url) {
+                window.open(url, '_blank', 'noopener,noreferrer');
+            }
+        });
+
+        $('#seopc-rbt-scale').on('change', updateScale);
+        $(window).on('resize', updateScale);
+
+        $('#seopc-rbt-compare').on('click', function() {
+            $('#seopc-rbt-compare-section').prop('hidden', false);
+            refreshCompare();
+            document.getElementById('seopc-rbt-compare-section').scrollIntoView({behavior: 'smooth', block: 'start'});
+        });
+
+        $('#seopc-rbt-close-compare').on('click', function() {
+            $('#seopc-rbt-compare-section').prop('hidden', true);
+            $('#seopc-rbt-compare-grid').empty();
+        });
+
+
+        function loadReportLibrary() {
+            if (window.html2pdf) return Promise.resolve(window.html2pdf);
+            return new Promise(function(resolve, reject) {
+                var existing = document.querySelector('script[data-seopc-html2pdf]');
+                if (existing) {
+                    existing.addEventListener('load', function(){ resolve(window.html2pdf); }, {once:true});
+                    existing.addEventListener('error', function(){ reject(new Error('Could not load PDF library.')); }, {once:true});
+                    return;
+                }
+                var script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+                script.async = true;
+                script.setAttribute('data-seopc-html2pdf','1');
+                script.onload = function(){ resolve(window.html2pdf); };
+                script.onerror = function(){ reject(new Error('Could not load PDF library.')); };
+                document.head.appendChild(script);
+            });
+        }
+
+        function escReport(value) {
+            return $('<div>').text(value === null || value === undefined ? '' : String(value)).html();
+        }
+
+        $('#seopc-rbt-export-pdf').on('click', async function() {
+            var url = currentUrl();
+            if (!url) { window.alert('Please enter a valid website URL first.'); return; }
+            var $button = $(this);
+            var checklist = [];
+            $('.seopc-rbt-checklist label').each(function(){
+                checklist.push({label: $(this).data('report-label') || $(this).text().trim(), pass: $(this).find('input').is(':checked')});
+            });
+            var host = 'website';
+            try { host = new URL(url).hostname; } catch (e) {}
+            var checked = checklist.filter(function(item){return item.pass;}).length;
+            var qaScore = checklist.length ? Math.round(checked / checklist.length * 100) : 0;
+            var services = ['ResponsiveTool','Responsivly','WaveSpeed','EazyStudio','BrowserStack'];
+            var html = '<div class="seopc-rbt-pdf-report">'+
+                '<header><div><span>WP SEO Performance Checker</span><h1>Responsive & Browser QA</h1><p>'+escReport(host)+'</p></div><div class="score"><strong>'+qaScore+'</strong><small>/100 checklist</small></div></header>'+
+                '<section><h2>Test summary</h2><div class="meta"><div><small>Website</small><strong>'+escReport(url)+'</strong></div><div><small>Viewport</small><strong>'+escReport(currentName)+' · '+currentWidth+' × '+currentHeight+'</strong></div><div><small>Generated</small><strong>'+escReport(new Date().toLocaleString())+'</strong></div></div></section>'+
+                '<section><h2>Visual QA checklist</h2><div class="checks">'+checklist.map(function(item){return '<div class="'+(item.pass?'pass':'review')+'"><b>'+(item.pass?'PASS':'REVIEW')+'</b><span>'+escReport(item.label)+'</span></div>';}).join('')+'</div></section>'+
+                '<section><h2>Device coverage</h2><table><thead><tr><th>Device</th><th>Viewport</th><th>Purpose</th></tr></thead><tbody><tr><td>iPhone 15</td><td>393 × 852</td><td>Primary mobile</td></tr><tr><td>iPad Air</td><td>820 × 1180</td><td>Tablet</td></tr><tr><td>MacBook Air 13</td><td>1440 × 900</td><td>Laptop</td></tr><tr><td>Desktop HD</td><td>1920 × 1080</td><td>Large desktop</td></tr></tbody></table></section>'+
+                '<section><h2>Real-browser follow-up</h2><p>Use real browser engines for final confirmation. Recommended services:</p><div class="services">'+services.map(function(x){return '<span>'+x+'</span>';}).join('')+'</div><p class="note">The built-in preview checks viewport responsiveness. Safari, Firefox, Edge and physical-device behavior should be confirmed in a real-browser service where required.</p></section>'+
+                '<footer>Generated by WP SEO Performance Checker · Responsive & Browser Test</footer></div>';
+            var wrap = document.createElement('div'); wrap.className='seopc-rbt-pdf-wrap'; wrap.innerHTML=html; document.body.appendChild(wrap);
+            $button.prop('disabled', true).text('Building PDF…');
+            try {
+                await loadReportLibrary();
+                await window.html2pdf().set({margin:[8,8,10,8],filename:'responsive-browser-report-'+host.replace(/[^a-z0-9.-]+/gi,'-')+'.pdf',image:{type:'jpeg',quality:.97},html2canvas:{scale:2,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['css','legacy']}}).from(wrap).save();
+            } catch (err) {
+                window.alert('PDF export failed: '+(err.message || 'Unknown error'));
+            } finally {
+                wrap.remove();
+                $button.prop('disabled', false).html('<span class="dashicons dashicons-pdf"></span>Export PDF report');
+            }
+        });
+
+        $('.seopc-rbt-service').on('click', function() {
+            var service = $(this).data('service');
+            var url = currentUrl();
+            var target = '';
+            if (service === 'responsivetool') {
+                target = 'https://responsivetool.com/?url=' + encodeURIComponent(url || '') + '&phone=iphone-15&desktop=macbook-air-13&ipad=ipad-air';
+            } else if (service === 'responsivly') {
+                target = 'https://responsivly.com/';
+            } else if (service === 'wavespeed') {
+                target = 'https://wavespeed.ai/free-tools/responsive-tester';
+            } else if (service === 'eazystudio') {
+                target = 'https://www.eazystudio.com/device-preview-tool/';
+            } else if (service === 'browserstack') {
+                target = 'https://www.browserstack.com/live';
+            }
+            if (target) {
+                window.open(target, '_blank', 'noopener,noreferrer');
+            }
+        });
+
+        setViewport(393, 852, 'iPhone 15');
+    });
+})(jQuery);

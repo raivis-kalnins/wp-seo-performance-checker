@@ -820,13 +820,32 @@ class SEOPC_Frontend_Toolkit {
                 $lastmod_node = $xpath->query('./*[local-name()="lastmod"]', $item)->item(0);
                 $changefreq_node = $xpath->query('./*[local-name()="changefreq"]', $item)->item(0);
                 $priority_node = $xpath->query('./*[local-name()="priority"]', $item)->item(0);
+                $path_value = (string) wp_parse_url($loc, PHP_URL_PATH);
+                $group_path = strtolower((string) wp_parse_url($sitemap_url, PHP_URL_PATH));
+                $content_type = 'other';
+                if (preg_match('/(?:product[_-]?cat|product-category)/', $group_path) || strpos($path_value, '/product-category/') === 0) {
+                    $content_type = 'product_category';
+                } elseif (preg_match('/(?:^|\/|[-_])product(?:[-_]?sitemap|\.xml)/', $group_path) || strpos($path_value, '/product/') === 0) {
+                    $content_type = 'product';
+                } elseif (preg_match('/(?:^|\/|[-_])page(?:[-_]?sitemap|\.xml)/', $group_path)) {
+                    $content_type = 'page';
+                } elseif (preg_match('/(?:^|\/|[-_])post(?:[-_]?sitemap|\.xml)/', $group_path)) {
+                    $content_type = 'post';
+                } elseif (preg_match('/category(?:[-_]?sitemap|\.xml)/', $group_path) || strpos($path_value, '/category/') === 0) {
+                    $content_type = 'category';
+                } elseif (preg_match('/tag(?:[-_]?sitemap|\.xml)/', $group_path) || strpos($path_value, '/tag/') === 0) {
+                    $content_type = 'tag';
+                } elseif (preg_match('/author(?:[-_]?sitemap|\.xml)/', $group_path) || strpos($path_value, '/author/') === 0) {
+                    $content_type = 'author';
+                }
                 $entry = [
                     'url' => $loc,
-                    'path' => (string) wp_parse_url($loc, PHP_URL_PATH),
+                    'path' => $path_value,
                     'lastmod' => $lastmod_node ? trim($lastmod_node->textContent) : '',
                     'changefreq' => $changefreq_node ? trim($changefreq_node->textContent) : '',
                     'priority' => $priority_node ? trim($priority_node->textContent) : '',
                     'group' => $sitemap_url,
+                    'content_type' => $content_type,
                 ];
                 $urls[$loc] = $entry;
                 $items[] = $loc;
@@ -969,12 +988,121 @@ class SEOPC_Frontend_Toolkit {
         ]);
     }
 
+    /**
+     * Turn a possibly relative asset URL into an absolute URL for the preview source.
+     */
+    private function preview_absolute_url($asset_url, $base_url) {
+        $asset_url = html_entity_decode(trim((string) $asset_url), ENT_QUOTES, 'UTF-8');
+        if ($asset_url === '' || strpos($asset_url, 'data:') === 0 || strpos($asset_url, 'blob:') === 0 || strpos($asset_url, '#') === 0) return $asset_url;
+        if (preg_match('#^https?://#i', $asset_url)) return $asset_url;
+        $base = wp_parse_url($base_url);
+        if (!$base || empty($base['host'])) return $asset_url;
+        $scheme = !empty($base['scheme']) ? $base['scheme'] : 'https';
+        if (strpos($asset_url, '//') === 0) return $scheme . ':' . $asset_url;
+        $origin = $scheme . '://' . $base['host'] . (!empty($base['port']) ? ':' . $base['port'] : '');
+        if (strpos($asset_url, '/') === 0) return $origin . $asset_url;
+        $path = !empty($base['path']) ? $base['path'] : '/';
+        $dir = preg_replace('#/[^/]*$#', '/', $path);
+        $combined = $dir . $asset_url;
+        $parts = [];
+        foreach (explode('/', $combined) as $part) {
+            if ($part === '' || $part === '.') continue;
+            if ($part === '..') array_pop($parts); else $parts[] = $part;
+        }
+        return $origin . '/' . implode('/', $parts);
+    }
+
+    /**
+     * Fetch an image once and embed it as a data URL so html2canvas never has to cross origins.
+     */
+    private function preview_inline_asset($asset_url, $base_url, &$asset_cache, &$budget_bytes) {
+        $absolute = $this->preview_absolute_url($asset_url, $base_url);
+        if ($absolute === '' || strpos($absolute, 'data:') === 0 || strpos($absolute, 'blob:') === 0 || strpos($absolute, '#') === 0) return $absolute;
+        if (isset($asset_cache[$absolute])) return $asset_cache[$absolute];
+        if ($budget_bytes <= 0) return $absolute;
+        $path = (string) wp_parse_url($absolute, PHP_URL_PATH);
+        if (preg_match('/\.(woff2?|ttf|otf|eot)(?:$|\?)/i', $path)) return '';
+        $per_asset = min(2 * MB_IN_BYTES, $budget_bytes);
+        $response = wp_safe_remote_get($absolute, [
+            'timeout' => 8,
+            'redirection' => 3,
+            'limit_response_size' => $per_asset,
+            'headers' => ['Accept' => 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'],
+            'user-agent' => 'Mozilla/5.0 WebsiteGrowthToolkit/' . SEOPC_VERSION,
+        ]);
+        if (is_wp_error($response) || (int) wp_remote_retrieve_response_code($response) >= 400) {
+            $asset_cache[$absolute] = $absolute;
+            return $absolute;
+        }
+        $body = (string) wp_remote_retrieve_body($response);
+        $type = trim(explode(';', (string) wp_remote_retrieve_header($response, 'content-type'))[0]);
+        if ($body === '' || strlen($body) > $per_asset || strpos($type, 'image/') !== 0) {
+            $asset_cache[$absolute] = $absolute;
+            return $absolute;
+        }
+        $budget_bytes -= strlen($body);
+        $data = 'data:' . $type . ';base64,' . base64_encode($body);
+        $asset_cache[$absolute] = $data;
+        return $data;
+    }
+
+    private function preview_best_srcset_candidate($srcset) {
+        $best = '';
+        foreach (array_filter(array_map('trim', explode(',', (string) $srcset))) as $candidate) {
+            $bits = preg_split('/\s+/', $candidate);
+            if (!empty($bits[0])) $best = $bits[0];
+        }
+        return $best;
+    }
+
+    private function preview_inline_css_assets($css, $base_url, &$asset_cache, &$budget_bytes) {
+        if ($css === '') return $css;
+        // Browser fonts are not needed for QA screenshots and are the most common CORS offender.
+        $css = preg_replace('/@font-face\s*\{[^}]*\}/is', '', $css);
+        $self = $this;
+        return preg_replace_callback('/url\(\s*(["\']?)(.*?)\1\s*\)/i', function ($m) use ($self, $base_url, &$asset_cache, &$budget_bytes) {
+            $raw = trim($m[2]);
+            if ($raw === '' || strpos($raw, 'data:') === 0 || strpos($raw, '#') === 0) return $m[0];
+            if (preg_match('/\.(woff2?|ttf|otf|eot)(?:$|\?)/i', $raw)) return 'url("")';
+            $inlined = $self->preview_inline_asset($raw, $base_url, $asset_cache, $budget_bytes);
+            return 'url("' . str_replace('"', '%22', $inlined) . '")';
+        }, $css);
+    }
+
+    private function preview_inline_stylesheets(DOMDocument $dom, DOMXPath $xpath, $page_url, &$asset_cache, &$budget_bytes) {
+        $nodes = $xpath->query('//link[contains(concat(" ", normalize-space(translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")), " "), " stylesheet ")]');
+        if (!$nodes) return;
+        $links = [];
+        foreach ($nodes as $node) $links[] = $node;
+        $count = 0;
+        foreach ($links as $link) {
+            if (++$count > 16 || $budget_bytes <= 0) break;
+            $href = $link->getAttribute('href');
+            $absolute = $this->preview_absolute_url($href, $page_url);
+            if (!preg_match('#^https?://#i', $absolute)) continue;
+            $response = wp_safe_remote_get($absolute, [
+                'timeout' => 8, 'redirection' => 3, 'limit_response_size' => min(700 * 1024, max(1, $budget_bytes)),
+                'headers' => ['Accept' => 'text/css,*/*;q=0.1'],
+                'user-agent' => 'Mozilla/5.0 WebsiteGrowthToolkit/' . SEOPC_VERSION,
+            ]);
+            if (is_wp_error($response) || (int) wp_remote_retrieve_response_code($response) >= 400) continue;
+            $css = (string) wp_remote_retrieve_body($response);
+            if ($css === '') continue;
+            $budget_bytes -= min(strlen($css), $budget_bytes);
+            $css = $this->preview_inline_css_assets($css, $absolute, $asset_cache, $budget_bytes);
+            $style = $dom->createElement('style');
+            $style->setAttribute('data-seopc-inline-css', '1');
+            $style->appendChild($dom->createTextNode($css));
+            if ($link->parentNode) $link->parentNode->replaceChild($style, $link);
+        }
+    }
+
     public function ajax_design_preview() {
         $this->authorize('design_preview', 20);
         $url = $this->validated_url($_POST['url'] ?? '');
         $settings = $this->get_settings();
         $fresh = !empty($_POST['fresh']) && sanitize_text_field(wp_unslash($_POST['fresh'])) === '1';
-        $cache_key = 'seopc_design_preview_v251_' . md5($url);
+        $cache_key = 'seopc_design_preview_v302_' . md5($url);
         $cached = $fresh ? false : get_transient($cache_key);
         if (is_array($cached)) { $cached['cached'] = true; wp_send_json_success($cached); }
 
@@ -998,7 +1126,7 @@ class SEOPC_Frontend_Toolkit {
         libxml_clear_errors();
         if (!$loaded) wp_send_json_error(['message' => __('Could not prepare a safe preview of this page.', 'seo-performance-checker')], 500);
         $xpath = new DOMXPath($dom);
-        foreach (['//script','//iframe','//object','//embed','//meta[translate(@http-equiv,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="refresh"]','//meta[translate(@http-equiv,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="content-security-policy"]'] as $query) {
+        foreach (['//script','//iframe','//object','//embed','//link[translate(@rel,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="preload" and translate(@as,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="font"]','//meta[translate(@http-equiv,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="refresh"]','//meta[translate(@http-equiv,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="content-security-policy"]'] as $query) {
             $nodes = $xpath->query($query);
             if ($nodes) for ($i = $nodes->length - 1; $i >= 0; $i--) { $node = $nodes->item($i); if ($node && $node->parentNode) $node->parentNode->removeChild($node); }
         }
@@ -1013,13 +1141,59 @@ class SEOPC_Frontend_Toolkit {
             if ($node->hasAttribute('data-src') && !$node->hasAttribute('src')) $node->setAttribute('src', $node->getAttribute('data-src'));
             if ($node->hasAttribute('data-lazy-src') && !$node->hasAttribute('src')) $node->setAttribute('src', $node->getAttribute('data-lazy-src'));
         }
+        // Build a self-contained visual snapshot. This avoids CORS/hotlink failures when the
+        // toolkit and tested website are on different domains (e.g. seo.63.lv -> staging site).
+        $asset_cache = [];
+        $asset_budget = 12 * MB_IN_BYTES;
+        $this->preview_inline_stylesheets($dom, $xpath, $url, $asset_cache, $asset_budget);
+
+        $images = $xpath->query('//img');
+        if ($images) {
+            $processed = 0;
+            foreach ($images as $img) {
+                if (++$processed > 80 || $asset_budget <= 0) break;
+                $candidate = '';
+                foreach (['data-lazy-src','data-src','src'] as $attr) {
+                    if ($img->hasAttribute($attr) && trim($img->getAttribute($attr)) !== '') { $candidate = $img->getAttribute($attr); break; }
+                }
+                if ($candidate === '') {
+                    foreach (['data-srcset','srcset'] as $attr) {
+                        if ($img->hasAttribute($attr)) { $candidate = $this->preview_best_srcset_candidate($img->getAttribute($attr)); if ($candidate !== '') break; }
+                    }
+                }
+                if ($candidate !== '') {
+                    $embedded = $this->preview_inline_asset($candidate, $url, $asset_cache, $asset_budget);
+                    if ($embedded !== '') {
+                        $img->setAttribute('src', $embedded);
+                        $img->removeAttribute('srcset');
+                        $img->removeAttribute('data-srcset');
+                        $img->removeAttribute('data-src');
+                        $img->removeAttribute('data-lazy-src');
+                        $img->setAttribute('loading', 'eager');
+                        $img->setAttribute('decoding', 'sync');
+                    }
+                }
+            }
+        }
+        $sources = $xpath->query('//source[@srcset or @data-srcset]');
+        if ($sources) foreach ($sources as $source) { $source->removeAttribute('srcset'); $source->removeAttribute('data-srcset'); }
+        $styled = $xpath->query('//*[@style]');
+        if ($styled) foreach ($styled as $node) {
+            $node->setAttribute('style', $this->preview_inline_css_assets($node->getAttribute('style'), $url, $asset_cache, $asset_budget));
+        }
+        $style_nodes = $xpath->query('//style');
+        if ($style_nodes) foreach ($style_nodes as $style_node) {
+            if ($style_node->getAttribute('data-seopc-inline-css') === '1') continue;
+            $style_node->nodeValue = $this->preview_inline_css_assets($style_node->nodeValue, $url, $asset_cache, $asset_budget);
+        }
+
         $heads = $dom->getElementsByTagName('head');
         $head = $heads->length ? $heads->item(0) : null;
         if ($head) {
             $base = $dom->createElement('base');
             $base->setAttribute('href', $url);
             $head->insertBefore($base, $head->firstChild);
-            $style = $dom->createElement('style', 'html,body{margin:0!important;min-height:100%;} *{box-sizing:border-box;} form{pointer-events:none!important;}');
+            $style = $dom->createElement('style', 'html,body{margin:0!important;min-height:100%;} *{box-sizing:border-box;font-family:Arial,Helvetica,sans-serif!important;animation:none!important;transition:none!important;} form{pointer-events:none!important;}');
             $head->appendChild($style);
         }
         $title_nodes = $dom->getElementsByTagName('title');
@@ -1218,14 +1392,17 @@ class SEOPC_Frontend_Toolkit {
         $this->check_nonce();
         $settings = $this->get_settings();
         if (!empty($settings['password_protection'])) {
-            $token = isset($_POST['access_token']) ? (string) wp_unslash($_POST['access_token']) : '';
-            if (!$this->validate_token($token)) {
-                if ($json) {
-                    wp_send_json_error(['message' => __('Your toolkit session expired. Unlock it again.', 'seo-performance-checker')], 403);
+            $admin_bypass = !empty($settings['admin_bypass']) && current_user_can('manage_options');
+            if (!$admin_bypass) {
+                $token = isset($_POST['access_token']) ? (string) wp_unslash($_POST['access_token']) : '';
+                if (!$this->validate_token($token)) {
+                    if ($json) {
+                        wp_send_json_error(['message' => __('Your toolkit session expired. Unlock it again.', 'seo-performance-checker')], 403);
+                    }
+                    status_header(403);
+                    echo 'Toolkit session expired.';
+                    exit;
                 }
-                status_header(403);
-                echo 'Toolkit session expired.';
-                exit;
             }
         }
         $this->enforce_rate_limit($bucket, $custom_limit, $json);
@@ -1701,6 +1878,85 @@ class SEOPC_Frontend_Toolkit {
                 $unlabelled_controls++;
             }
         }
+
+        // Extra design/responsive signals for the Design QA workspace.
+        $missing_srcset_count = 0;
+        $lazy_image_count = 0;
+        $responsive_image_count = 0;
+        if ($image_nodes_for_design) {
+            foreach ($image_nodes_for_design as $image_node) {
+                if (!$image_node->hasAttribute('srcset') && !$image_node->hasAttribute('sizes')) $missing_srcset_count++;
+                else $responsive_image_count++;
+                if (strtolower(trim((string) $image_node->getAttribute('loading'))) === 'lazy') $lazy_image_count++;
+            }
+        }
+
+        $fixed_position_count = 0;
+        $sticky_position_count = 0;
+        $fixed_height_count = 0;
+        $overflow_hidden_count = 0;
+        if ($styled_nodes) {
+            foreach ($styled_nodes as $styled_node) {
+                $style = strtolower((string) $styled_node->getAttribute('style'));
+                if (preg_match('/position\s*:\s*fixed/i', $style)) $fixed_position_count++;
+                if (preg_match('/position\s*:\s*sticky/i', $style)) $sticky_position_count++;
+                if (preg_match('/(?:^|;)\s*(?:min-)?height\s*:\s*(\d{3,5})px/i', $style, $height_match) && (int) $height_match[1] > 700) $fixed_height_count++;
+                if (preg_match('/overflow(?:-x|-y)?\s*:\s*hidden/i', $style)) $overflow_hidden_count++;
+            }
+        }
+
+        $duplicate_id_count = 0;
+        $seen_ids = [];
+        $id_nodes = $xpath->query('//*[@id]');
+        if ($id_nodes) {
+            foreach ($id_nodes as $id_node) {
+                $id_value = trim((string) $id_node->getAttribute('id'));
+                if ($id_value === '') continue;
+                if (isset($seen_ids[$id_value])) $duplicate_id_count++;
+                $seen_ids[$id_value] = true;
+            }
+        }
+
+        $unnamed_action_count = 0;
+        $action_nodes = $xpath->query('//button|//a[@href]');
+        if ($action_nodes) {
+            foreach ($action_nodes as $action_node) {
+                $name = trim(preg_replace('/\s+/u', ' ', (string) $action_node->textContent));
+                if ($name !== '') continue;
+                if ($action_node->hasAttribute('aria-label') || $action_node->hasAttribute('aria-labelledby') || $action_node->hasAttribute('title')) continue;
+                $img = $xpath->query('.//img[@alt and normalize-space(@alt)!=""]', $action_node);
+                if ($img && $img->length) continue;
+                $unnamed_action_count++;
+            }
+        }
+
+        $target_blank_without_rel_count = 0;
+        $blank_links = $xpath->query('//a[translate(@target,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz")="_blank"]');
+        if ($blank_links) {
+            foreach ($blank_links as $blank_link) {
+                $rel = strtolower((string) $blank_link->getAttribute('rel'));
+                if (strpos($rel, 'noopener') === false && strpos($rel, 'noreferrer') === false) $target_blank_without_rel_count++;
+            }
+        }
+
+        $table_count = 0;
+        $fixed_table_count = 0;
+        $tables = $xpath->query('//table');
+        if ($tables) {
+            $table_count = $tables->length;
+            foreach ($tables as $table) {
+                $style = strtolower((string) $table->getAttribute('style'));
+                $width_attr = trim((string) $table->getAttribute('width'));
+                if (($width_attr !== '' && ctype_digit($width_attr) && (int) $width_attr > 600) || preg_match('/width\s*:\s*(\d{3,5})px/i', $style, $tw) && (int) $tw[1] > 600) $fixed_table_count++;
+            }
+        }
+
+        $inline_media_query_count = 0;
+        $style_tags = $xpath->query('//style');
+        if ($style_tags) {
+            foreach ($style_tags as $style_tag) $inline_media_query_count += substr_count(strtolower((string) $style_tag->textContent), '@media');
+        }
+
         $design_score = 100;
         $design_issues = [];
         if (!$viewport) { $design_score -= 30; $design_issues[] = __('Missing viewport meta tag can break mobile layout.', 'seo-performance-checker'); }
@@ -1708,6 +1964,11 @@ class SEOPC_Frontend_Toolkit {
         if ($missing_image_dimensions > 0) { $design_score -= min(15, $missing_image_dimensions); $design_issues[] = sprintf(_n('%d image lacks width/height attributes, increasing layout-shift risk.', '%d images lack width/height attributes, increasing layout-shift risk.', $missing_image_dimensions, 'seo-performance-checker'), $missing_image_dimensions); }
         if ($tiny_text_count > 0) { $design_score -= min(12, $tiny_text_count * 2); $design_issues[] = __('Very small inline font sizes were detected.', 'seo-performance-checker'); }
         if ($unlabelled_controls > 0) { $design_score -= min(18, $unlabelled_controls * 3); $design_issues[] = sprintf(_n('%d form control appears to lack an accessible label.', '%d form controls appear to lack accessible labels.', $unlabelled_controls, 'seo-performance-checker'), $unlabelled_controls); }
+        if ($duplicate_id_count > 0) { $design_score -= min(10, $duplicate_id_count * 2); $design_issues[] = sprintf(_n('%d duplicate element ID was detected.', '%d duplicate element IDs were detected.', $duplicate_id_count, 'seo-performance-checker'), $duplicate_id_count); }
+        if ($unnamed_action_count > 0) { $design_score -= min(12, $unnamed_action_count * 2); $design_issues[] = sprintf(_n('%d link or button has no clear accessible name.', '%d links or buttons have no clear accessible name.', $unnamed_action_count, 'seo-performance-checker'), $unnamed_action_count); }
+        if ($fixed_height_count > 0) { $design_score -= min(8, $fixed_height_count * 2); $design_issues[] = __('Very tall fixed pixel heights were detected and may crop content on smaller screens.', 'seo-performance-checker'); }
+        if ($fixed_table_count > 0) { $design_score -= min(8, $fixed_table_count * 3); $design_issues[] = sprintf(_n('%d wide fixed-width table may overflow on mobile.', '%d wide fixed-width tables may overflow on mobile.', $fixed_table_count, 'seo-performance-checker'), $fixed_table_count); }
+        if ($target_blank_without_rel_count > 0) { $design_score -= min(5, $target_blank_without_rel_count); $design_issues[] = sprintf(_n('%d target=_blank link is missing rel=noopener/noreferrer.', '%d target=_blank links are missing rel=noopener/noreferrer.', $target_blank_without_rel_count, 'seo-performance-checker'), $target_blank_without_rel_count); }
         if ($extreme_z_count > 0) { $design_score -= min(8, $extreme_z_count * 2); $design_issues[] = __('Extreme z-index values were detected and may indicate stacking-context conflicts.', 'seo-performance-checker'); }
         $design_score = max(0, $design_score);
 
@@ -1930,6 +2191,19 @@ class SEOPC_Frontend_Toolkit {
                 'tiny_text_count' => $tiny_text_count,
                 'unlabelled_controls' => $unlabelled_controls,
                 'extreme_z_index_count' => $extreme_z_count,
+                'missing_srcset_count' => $missing_srcset_count,
+                'responsive_image_count' => $responsive_image_count,
+                'lazy_image_count' => $lazy_image_count,
+                'fixed_position_count' => $fixed_position_count,
+                'sticky_position_count' => $sticky_position_count,
+                'fixed_height_count' => $fixed_height_count,
+                'overflow_hidden_count' => $overflow_hidden_count,
+                'duplicate_id_count' => $duplicate_id_count,
+                'unnamed_action_count' => $unnamed_action_count,
+                'target_blank_without_rel_count' => $target_blank_without_rel_count,
+                'table_count' => $table_count,
+                'fixed_table_count' => $fixed_table_count,
+                'inline_media_query_count' => $inline_media_query_count,
                 'issues' => $design_issues,
             ],
             'seo' => [
