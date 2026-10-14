@@ -1,3 +1,11 @@
+## 3.2.1 - Independent device builds + desktop capture fix
+
+- Each selected device has an independent build state; only the clicked PDF button shows Building.
+- One PDF is generated per device, one at a time.
+- Desktop/laptop screenshots now capture the full documentElement at the exact viewport size.
+- Forces a white html/body viewport background and fixed viewport dimensions to prevent black/cropped regions.
+- Keeps visual-only fast mode, per-page snapshot cache, and optional QA findings.
+
 ## 3.2.0 - Reliable fast PDF screenshots
 
 - Fixes the v3.1.0 regression where Fast mode could finish the PDF with no embedded visual screenshots.

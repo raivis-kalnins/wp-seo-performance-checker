@@ -1098,7 +1098,9 @@ class SEOPC_Frontend_Toolkit {
     }
 
     public function ajax_design_preview() {
-        $this->authorize('design_preview', 20);
+        // Responsive PDF exports can legitimately request many page snapshots.
+        // Use a higher public allowance; logged-in administrators bypass the limiter entirely.
+        $this->authorize('design_preview', 180);
         $url = $this->validated_url($_POST['url'] ?? '');
         $settings = $this->get_settings();
         $fresh = !empty($_POST['fresh']) && sanitize_text_field(wp_unslash($_POST['fresh'])) === '1';
@@ -1453,10 +1455,12 @@ class SEOPC_Frontend_Toolkit {
 
     private function enforce_rate_limit($bucket, $custom_limit = null, $json = true) {
         $settings = $this->get_settings();
-        $limit = $custom_limit ?: (int) $settings['rate_limit_hour'];
+        // Site administrators are trusted operators. Large multi-page PDF exports can easily
+        // exceed the public request budget, so do not rate-limit administrator AJAX sessions.
         if (current_user_can('manage_options')) {
-            $limit *= 5;
+            return;
         }
+        $limit = $custom_limit ?: (int) $settings['rate_limit_hour'];
         $key = 'seopc_rl_' . md5($bucket . '|' . $this->client_ip());
         $count = (int) get_transient($key);
         if ($count >= $limit) {
