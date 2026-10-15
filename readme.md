@@ -1,3 +1,32 @@
+## 3.4.3 — Desktop viewport & Design QA alignment fix
+
+- Fix transparent or clipped right/bottom desktop screenshot edges: render at native viewport resolution before downscaling for quality/performance.
+- Flatten screenshot raster onto opaque white before embedding in device frames; transparent screenshot pixels no longer expose frame gradient.
+- Align Single-page live QA URL, viewport select and action button using a dedicated responsive three-column grid.
+- Preserve mobile/tablet capture, gallery history, separate images/ZIP downloads, and Image Studio.
+
+## v3.4.2 - Image Studio usability and typography
+
+- Brush and eraser: visible, scalable outlined cursor that does not enter the exported image; lightweight DOM cursor rather than redrawing a large canvas on every hover.
+- Zoom: plus/minus buttons, 100% shortcut, Fit, and keyboard `+` / `-` support (10%-400%).
+- Text: double-click text on canvas or select Edit on canvas; adjust font family, size, weight (normal/medium/semibold/bold), alignment; live editing with Undo support.
+- Spacing: clearer toolbar, text formatting buttons and layer actions.
+- Readability: medium-weight text, higher contrast, improved control text sizes throughout the Website Growth Toolkit without affecting tested websites.
+- Existing website audit, sitemap, design QA, social, DNS, optimisation, video and converter modules retained.
+
+## 3.4.2 — Image Studio photo editor
+- Photopea-inspired simplified layout with a left-hand tool palette, canvas stage, right-side layers and properties, and compact file/export controls.
+- Selection and movement, drag crop with aspect presets, brush and paint-layer eraser, shapes, editable text, eyedropper, zoom and pan.
+- Layers can be selected, renamed, hidden, locked, duplicated, reordered or deleted. Undo and redo cover layer edits and canvas resizing.
+- Image adjustments (brightness, contrast, saturation, hue, greyscale, sepia and blur) and one-click colour presets.
+- Open an image, create a blank canvas, drop/paste local images, copy PNG or export WebP, PNG, JPG and AVIF (with browser fallback).
+- Keeps all other toolkit modules from 3.3.9 unchanged.
+
+## 3.3.9 — Desktop capture and UI spacing
+- Lock html2canvas clone to the requested device viewport and capture the document root.
+- Compact disabled device buttons, more spacing above maintenance controls, and correct single-image completion status.
+- Desktop visual rendering still depends on the fidelity of the server-side HTML snapshot.
+
 ## 3.2.1 - Independent device builds + desktop capture fix
 
 - Each selected device has an independent build state; only the clicked PDF button shows Building.
@@ -642,3 +671,7 @@ Then:
 - Cross-origin webfonts are stripped from capture snapshots to avoid CORS stalls.
 - Snapshot cache key bumped so old broken preview HTML is not reused.
 - Per-page asset budgets and request limits prevent large sites from exhausting memory.
+
+
+## v3.4.2 Image Studio refresh
+Image Studio gains a photo-editor workspace with move/select, drag-to-crop, brush/paint-layer eraser, rectangles, ellipses, text, colour picker, canvas pan/zoom, layers, history, colour presets, resize, keyboard shortcuts and web image export. All image editing stays in the user browser.
