@@ -462,6 +462,272 @@
         if (withCanvas && !window.html2canvas) throw new Error('Could not load the screenshot library.');
     }
 
+
+    async function ensureZipLibrary() {
+        await ensureReportPdfLibraries(true);
+        if (!window.JSZip) {
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js', 'JSZip');
+        }
+        if (!window.JSZip) throw new Error('Could not load the ZIP library.');
+    }
+
+    function slugifyLabel(value, fallback) {
+        var text = String(value || fallback || 'item').toLowerCase();
+        text = text.replace(/https?:\/\//g, '');
+        text = text.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+        return (text || fallback || 'item').slice(0, 80);
+    }
+
+    function canvasToBlob(canvas, type, quality) {
+        return new Promise(function (resolve) {
+            try {
+                canvas.toBlob(function (blob) { resolve(blob || null); }, type, quality);
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    function loadImageFromDataUrl(dataUrl) {
+        return new Promise(function (resolve, reject) {
+            var image = new Image();
+            image.onload = function () { resolve(image); };
+            image.onerror = function () { reject(new Error('Could not decode a captured screenshot.')); };
+            image.src = dataUrl;
+        });
+    }
+
+    function designDeviceFamily(device) {
+        var key = String(device && device.key || '');
+        if (key.indexOf('ipad') === 0 || key === 'tablet') return 'tablet';
+        if (key.indexOf('laptop') === 0) return 'laptop';
+        if (key === 'desktop' || key === 'qhd') return 'desktop';
+        return 'mobile';
+    }
+
+    function roundedRectPath(ctx, x, y, w, h, r) {
+        var radius = Math.max(0, Math.min(Number(r || 0), w / 2, h / 2));
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.arcTo(x + w, y, x + w, y + h, radius);
+        ctx.arcTo(x + w, y + h, x, y + h, radius);
+        ctx.arcTo(x, y + h, x, y, radius);
+        ctx.arcTo(x, y, x + w, y, radius);
+        ctx.closePath();
+    }
+
+    function drawLabelPill(ctx, x, y, w, h, title, subtitle) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(15, 23, 42, 0.10)';
+        ctx.shadowBlur = Math.round(h * 0.2);
+        ctx.shadowOffsetY = Math.round(h * 0.05);
+        roundedRectPath(ctx, x, y, w, h, h / 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.94)';
+        ctx.fill();
+        ctx.restore();
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillStyle = '#12342a';
+        ctx.font = '600 ' + Math.max(16, Math.round(h * 0.21)) + 'px Arial';
+        ctx.fillText(title, x + w / 2, y + h * 0.44);
+        ctx.fillStyle = '#5f6f69';
+        ctx.font = '400 ' + Math.max(12, Math.round(h * 0.16)) + 'px Arial';
+        ctx.fillText(subtitle, x + w / 2, y + h * 0.74);
+        ctx.restore();
+    }
+
+    function silverFrameGradient(ctx, x, y, w, h) {
+        var gradient = ctx.createLinearGradient(x, y, x + w, y + h * 0.65);
+        gradient.addColorStop(0, '#151c27');
+        gradient.addColorStop(0.18, '#485260');
+        gradient.addColorStop(0.40, '#202a38');
+        gradient.addColorStop(0.70, '#626c79');
+        gradient.addColorStop(1, '#111925');
+        return gradient;
+    }
+
+    async function composeFramedDeviceScreenshot(screenshotDataUrl, device, pageTitle, options) {
+        if (!screenshotDataUrl) return null;
+        var image = await loadImageFromDataUrl(screenshotDataUrl);
+        options = options || {};
+        var family = designDeviceFamily(device);
+        // The screenshot is already rasterized at its target resolution. Avoid an expensive second upscale.
+        var exportScale = 1;
+        var labelTitle = (pageTitle || 'Page').replace(/\s+/g, ' ').trim();
+        var labelSub = device.name + ' · ' + device.width + '×' + device.height;
+        var screenW = Math.max(1, Math.round(image.naturalWidth * exportScale));
+        var screenH = Math.max(1, Math.round(image.naturalHeight * exportScale));
+        var metrics;
+        if (family === 'mobile') {
+            metrics = { side: Math.round(screenW * 0.115), top: Math.round(screenW * 0.13), bottom: Math.round(screenW * 0.13), radius: Math.round(screenW * 0.10), outer: '#111827', stroke: 'rgba(255,255,255,0.14)' };
+        } else if (family === 'tablet') {
+            metrics = { side: Math.round(screenW * 0.085), top: Math.round(screenW * 0.09), bottom: Math.round(screenW * 0.095), radius: Math.round(screenW * 0.055), outer: '#0f172a', stroke: 'rgba(255,255,255,0.12)' };
+        } else if (family === 'laptop') {
+            metrics = { side: Math.round(screenW * 0.045), top: Math.round(screenW * 0.045), bottom: Math.round(screenW * 0.065), radius: Math.round(screenW * 0.02), outer: '#0f172a', stroke: 'rgba(255,255,255,0.12)' };
+        } else {
+            metrics = { side: Math.round(screenW * 0.038), top: Math.round(screenW * 0.04), bottom: Math.round(screenW * 0.05), radius: Math.round(screenW * 0.018), outer: '#0f172a', stroke: 'rgba(255,255,255,0.10)' };
+        }
+        var labelH = Math.max(70, Math.round(screenW * 0.105));
+        metrics.bottom = Math.max(metrics.bottom, labelH + Math.round(screenW * (family === 'mobile' || family === 'tablet' ? 0.065 : 0.015)));
+        if (family === 'laptop' || family === 'desktop') {
+            labelH = Math.max(34, Math.round(screenW * 0.042));
+            metrics.side = Math.round(screenW * (family === 'laptop' ? 0.014 : 0.017));
+            metrics.top = Math.round(screenW * 0.017);
+            metrics.bottom = Math.round(screenW * 0.013);
+            metrics.radius = Math.round(screenW * 0.009);
+        }
+        var pad = Math.max(40, Math.round(screenW * 0.06));
+        var bodyExtra = 0;
+        if (family === 'laptop') bodyExtra = Math.round(screenW * 0.085);
+        if (family === 'desktop') bodyExtra = Math.round(screenW * 0.15);
+        var canvas = document.createElement('canvas');
+        canvas.width = screenW + metrics.side * 2 + pad * 2;
+        canvas.height = screenH + metrics.top + metrics.bottom + bodyExtra + pad * 2;
+        var ctx = canvas.getContext('2d', { alpha: true });
+        var frameX = pad;
+        var frameY = pad;
+        var frameW = screenW + metrics.side * 2;
+        var frameH = screenH + metrics.top + metrics.bottom;
+        var screenX = frameX + metrics.side;
+        var screenY = frameY + metrics.top;
+        var bodyY = frameY + frameH;
+
+        ctx.save();
+        ctx.shadowColor = 'rgba(15, 23, 42, 0.16)';
+        ctx.shadowBlur = Math.round(Math.max(frameW, frameH) * 0.05);
+        ctx.shadowOffsetY = Math.round(Math.max(frameW, frameH) * 0.015);
+
+        if (family === 'mobile' || family === 'tablet') {
+            roundedRectPath(ctx, frameX, frameY, frameW, frameH, metrics.radius);
+            ctx.fillStyle = silverFrameGradient(ctx, frameX, frameY, frameW, frameH);
+            ctx.fill();
+            ctx.restore();
+            ctx.save();
+            roundedRectPath(ctx, frameX + 2, frameY + 2, frameW - 4, frameH - 4, Math.max(8, metrics.radius - 2));
+            ctx.strokeStyle = metrics.stroke;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.restore();
+            ctx.save();
+            roundedRectPath(ctx, screenX, screenY, screenW, screenH, Math.max(18, Math.round(metrics.radius * 0.62)));
+            ctx.clip();
+            ctx.drawImage(image, screenX, screenY, screenW, screenH);
+            ctx.restore();
+            ctx.save();
+            ctx.fillStyle = '#070d16';
+            if (family === 'mobile') {
+                var notchW = Math.round(frameW * 0.28), notchH = Math.max(12, Math.round(metrics.top * 0.42));
+                roundedRectPath(ctx, frameX + (frameW - notchW) / 2, frameY + Math.round(metrics.top * 0.18), notchW, notchH, Math.round(notchH / 2));
+                ctx.fill();
+            } else {
+                ctx.beginPath();
+                ctx.arc(frameX + frameW / 2, frameY + Math.round(metrics.top * 0.45), Math.max(5, Math.round(metrics.top * 0.08)), 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        } else if (family === 'laptop') {
+            // Realistic thin-bezel display, hinge and tapered aluminium keyboard deck.
+            roundedRectPath(ctx, frameX, frameY, frameW, frameH, metrics.radius);
+            ctx.fillStyle = silverFrameGradient(ctx, frameX, frameY, frameW, frameH);
+            ctx.fill();
+            ctx.restore();
+            ctx.save();
+            roundedRectPath(ctx, screenX, screenY, screenW, screenH, Math.max(4, metrics.radius * 0.4));
+            ctx.clip();
+            ctx.drawImage(image, screenX, screenY, screenW, screenH);
+            ctx.restore();
+            ctx.save();
+            ctx.fillStyle = '#080d16';
+            ctx.beginPath();
+            ctx.arc(frameX + frameW / 2, frameY + metrics.top * 0.52, Math.max(2, metrics.top * 0.15), 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#536170';
+            ctx.fillRect(frameX + frameW * 0.04, bodyY, frameW * 0.92, Math.max(3, bodyExtra * 0.09));
+            var deck = ctx.createLinearGradient(0, bodyY, 0, bodyY + bodyExtra * 0.75);
+            deck.addColorStop(0, '#aab4c0'); deck.addColorStop(0.35, '#e3e7eb'); deck.addColorStop(0.8, '#9da9b7'); deck.addColorStop(1, '#687483');
+            ctx.fillStyle = deck;
+            ctx.beginPath();
+            ctx.moveTo(frameX + frameW * 0.04, bodyY + bodyExtra * 0.09);
+            ctx.lineTo(frameX + frameW * 0.96, bodyY + bodyExtra * 0.09);
+            ctx.lineTo(frameX + frameW, bodyY + bodyExtra * 0.70);
+            ctx.lineTo(frameX, bodyY + bodyExtra * 0.70);
+            ctx.closePath(); ctx.fill();
+            ctx.fillStyle = 'rgba(45,55,68,0.16)';
+            roundedRectPath(ctx, frameX + frameW * 0.40, bodyY + bodyExtra * 0.20, frameW * 0.20, bodyExtra * 0.27, Math.max(3, bodyExtra * 0.035));
+            ctx.fill();
+            ctx.fillStyle = '#667383';
+            roundedRectPath(ctx, frameX + frameW * 0.005, bodyY + bodyExtra * 0.68, frameW * 0.99, Math.max(3, bodyExtra * 0.065), Math.max(2, bodyExtra * 0.025));
+            ctx.fill();
+            ctx.restore();
+        } else {
+            // Thin widescreen monitor with a narrow pedestal and weighted foot.
+            roundedRectPath(ctx, frameX, frameY, frameW, frameH, metrics.radius);
+            ctx.fillStyle = silverFrameGradient(ctx, frameX, frameY, frameW, frameH);
+            ctx.fill();
+            ctx.restore();
+            ctx.save();
+            roundedRectPath(ctx, screenX, screenY, screenW, screenH, Math.max(3, metrics.radius * 0.45));
+            ctx.clip();
+            ctx.drawImage(image, screenX, screenY, screenW, screenH);
+            ctx.restore();
+            ctx.save();
+            var stem = ctx.createLinearGradient(frameX + frameW * 0.47, 0, frameX + frameW * 0.53, 0);
+            stem.addColorStop(0, '#566273'); stem.addColorStop(0.5, '#b6c0cb'); stem.addColorStop(1, '#4c5969');
+            ctx.fillStyle = stem;
+            ctx.beginPath();
+            ctx.moveTo(frameX + frameW * 0.475, bodyY);
+            ctx.lineTo(frameX + frameW * 0.525, bodyY);
+            ctx.lineTo(frameX + frameW * 0.545, bodyY + bodyExtra * 0.70);
+            ctx.lineTo(frameX + frameW * 0.455, bodyY + bodyExtra * 0.70);
+            ctx.closePath(); ctx.fill();
+            var foot = ctx.createLinearGradient(0, bodyY + bodyExtra * 0.70, 0, bodyY + bodyExtra * 0.88);
+            foot.addColorStop(0, '#c2cad4'); foot.addColorStop(1, '#586676');
+            ctx.fillStyle = foot;
+            ctx.beginPath();
+            ctx.moveTo(frameX + frameW * 0.38, bodyY + bodyExtra * 0.71);
+            ctx.lineTo(frameX + frameW * 0.62, bodyY + bodyExtra * 0.71);
+            ctx.lineTo(frameX + frameW * 0.68, bodyY + bodyExtra * 0.84);
+            ctx.lineTo(frameX + frameW * 0.32, bodyY + bodyExtra * 0.84);
+            ctx.closePath(); ctx.fill();
+            ctx.restore();
+        }
+
+        // The label belongs to the device itself, not an external floating badge.
+        // Position it in the enlarged bottom bezel so it never overlaps the screenshot.
+        var labelW = frameW * 0.86;
+        var labelX = frameX + (frameW - labelW) / 2;
+        var labelY = frameY + frameH - metrics.bottom + Math.max(4, (metrics.bottom - labelH) / 2);
+        if (family === 'laptop' || family === 'desktop') {
+            labelY = bodyY + bodyExtra * 0.87;
+            labelH = Math.min(labelH, Math.max(24, canvas.height - labelY - 2));
+        }
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#f4f7fb';
+        ctx.font = '600 ' + Math.max(13, Math.round(labelH * 0.25)) + 'px Arial';
+        var safeTitle = labelTitle.length > 48 ? labelTitle.slice(0, 45) + '…' : labelTitle;
+        ctx.fillText(safeTitle, labelX + labelW / 2, labelY + labelH * 0.41, labelW);
+        ctx.fillStyle = '#c1cbd6';
+        ctx.font = '400 ' + Math.max(11, Math.round(labelH * 0.19)) + 'px Arial';
+        ctx.fillText(labelSub, labelX + labelW / 2, labelY + labelH * 0.73, labelW);
+        ctx.restore();
+
+        var preferredType = 'image/avif';
+        var blob = await canvasToBlob(canvas, preferredType, ({ fast: 0.72, balanced: 0.82, high: 0.88, print: 0.92 }[options.quality || 'balanced']) || 0.82);
+        var type = preferredType;
+        if (!blob || blob.type !== preferredType) {
+            type = 'image/webp';
+            blob = await canvasToBlob(canvas, type, 0.86);
+        }
+        if (!blob || blob.type !== 'image/webp') {
+            type = 'image/png';
+            blob = await canvasToBlob(canvas, type, 0.96);
+        }
+        if (!blob) return null;
+        return { blob: blob, type: type, width: canvas.width, height: canvas.height };
+    }
+
     function pdfHost(url) {
         try { return new URL(url).hostname || 'website'; } catch (e) { return String(url || 'website').replace(/^https?:\/\//,'').split('/')[0] || 'website'; }
     }
@@ -605,7 +871,8 @@
                 catch(e2){ return null; }
             }
             try {
-                var data=canvas.toDataURL('image/jpeg',jpegQuality);
+                var data=canvas.toDataURL('image/webp',jpegQuality);
+                if(data.indexOf('data:image/webp')!==0)data=canvas.toDataURL('image/jpeg',jpegQuality);
                 canvas.width=1; canvas.height=1;
                 return data;
             } catch(e3) { return null; }
@@ -692,6 +959,61 @@
             var html='<!doctype html>'+frame.contentDocument.documentElement.outerHTML;
             return await capturePreviewHtml(html,device);
         } catch(e){ return null; }
+    }
+
+
+    async function downloadDesignQaDeviceZip(reportPages, device, progressCb, options) {
+        await ensureZipLibrary();
+        reportPages = Array.isArray(reportPages) ? reportPages : [];
+        if (!reportPages.length) throw new Error('No tested pages are available for the screenshot ZIP.');
+        if (!device) throw new Error('Choose a device size for the screenshot ZIP.');
+        options = options || {};
+        var qualityMode = options.quality || 'balanced';
+        var shouldCancel = typeof options.shouldCancel === 'function' ? options.shouldCancel : function () { return false; };
+        var includeFindings = options.includeFindings !== false;
+        var zip = new window.JSZip();
+        var host = pdfHost((reportPages[0] && reportPages[0].url) || 'website');
+        var deviceSlug = slugifyLabel(device.name, 'device');
+        var extMap = { 'image/avif': 'avif', 'image/webp': 'webp', 'image/png': 'png' };
+        var summaryRows = [['page_index','page_title','page_url','device','viewport','content_type','design_score','issues']];
+        for (var i = 0; i < reportPages.length; i++) {
+            if (shouldCancel()) throw new Error('Report cancelled.');
+            var rp = reportPages[i] || {};
+            var label = (function(url){try{var u=new URL(url);return u.pathname==='/'?'Home':decodeURIComponent(u.pathname.replace(/^\/+|\/+$/g,''))||'Home';}catch(e){return url||('Page '+(i+1));}})(rp.url || '');
+            if (progressCb) progressCb({ page: i + 1, pages: reportPages.length, label: label + ' · ' + device.name });
+            var capture = await capturePreviewHtml(rp.preview && rp.preview.html || '', device, qualityMode);
+            if (!capture) throw new Error('A screenshot could not be created for ' + label + ' on ' + device.name + '.');
+            var composed = await composeFramedDeviceScreenshot(capture, device, label, { quality: qualityMode });
+            if (!composed || !composed.blob) throw new Error('A framed image could not be prepared for ' + label + '.');
+            var ext = extMap[composed.type] || 'png';
+            var filename = String(i + 1).padStart(2, '0') + '-' + slugifyLabel(label, 'page') + '-' + deviceSlug + '.' + ext;
+            zip.file(filename, composed.blob);
+            var design = rp.audit && rp.audit.design || {};
+            summaryRows.push([
+                i + 1,
+                '"' + String(label).replace(/"/g, '""') + '"',
+                '"' + String(rp.url || '').replace(/"/g, '""') + '"',
+                '"' + String(device.name).replace(/"/g, '""') + '"',
+                '"' + (device.width + 'x' + device.height) + '"',
+                '"' + String(rp.content_type || '').replace(/"/g, '""') + '"',
+                isFinite(Number(design.score)) ? Math.round(Number(design.score)) : '',
+                '"' + String((design.issues || []).join(' | ')).replace(/"/g, '""') + '"'
+            ]);
+        }
+        zip.file('README.txt', [
+            'Website Growth Toolkit – Design QA screenshot package',
+            'Host: ' + host,
+            'Device: ' + device.name + ' (' + device.width + '×' + device.height + ')',
+            'Pages: ' + reportPages.length,
+            'Quality: ' + qualityMode,
+            'Format preference: AVIF (with WebP/PNG fallback if the browser cannot encode AVIF)',
+            'Storage note: the screenshot ZIP is generated locally in the browser and is not kept as a server-side file. Preview caches expire automatically.'
+        ].join('\r\n'));
+        if (includeFindings) {
+            zip.file('design-qa-summary.csv', summaryRows.map(function (row) { return Array.isArray(row) ? row.join(',') : row; }).join('\r\n'));
+        }
+        var zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+        downloadBlob(zipBlob, 'design-qa-' + deviceSlug + '-' + slugifyLabel(host, 'website') + '.zip');
     }
 
     async function downloadDesignQaDevicePdf(reportPages, device, manualChecks, progressCb, options) {
@@ -802,7 +1124,7 @@
         }
         newPage('QA checklist & recommendations');W=PW();var cy=36;doc.setTextColor.apply(doc,dark);doc.setFont('helvetica','bold');doc.setFontSize(16);doc.text('Manual visual QA checklist',ML,cy);cy+=9;doc.setFontSize(8.5);
         Object.keys(manualChecks||{}).forEach(function(label){var pass=!!manualChecks[label];if(cy>270){newPage('QA checklist');cy=36;}doc.setFillColor(pass?225:255,pass?247:248,pass?236:235);doc.roundedRect(ML,cy,PW()-ML-MR,9,2,2,'F');doc.setTextColor(pass?22:146,pass?101:64,pass?52:14);doc.setFont('helvetica','bold');doc.text((pass?'PASS  ':'REVIEW  ')+label,ML+4,cy+6);cy+=11;});
-        cy+=4;doc.setTextColor.apply(doc,dark);doc.setFontSize(12);doc.text('Report note',ML,cy);cy+=7;doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize('Pages are grouped by sitemap content type. Wide device screenshots use landscape A4 pages to maximise readable visual area. Test results are cached during this session so changing PDF scope or quality does not force every page audit to run again.',PW()-ML-MR),ML,cy);footer();
+        cy+=4;doc.setTextColor.apply(doc,dark);doc.setFontSize(12);doc.text('Report note',ML,cy);cy+=7;doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor.apply(doc,muted);doc.text(doc.splitTextToSize('Pages are grouped by sitemap content type. Wide device screenshots use landscape A4 pages to maximise readable visual area. Test results are cached during this session so changing Export scope or quality does not force every page audit to run again.',PW()-ML-MR),ML,cy);footer();
         doc.save('design-qa-multipage-'+host.replace(/[^a-z0-9.-]+/gi,'-')+'.pdf');
     }
 
@@ -2424,6 +2746,8 @@
         var deviceState=useState({phone:true,tablet:true,laptop:true,desktop:true,iphone_se:false,iphone_max:false,pixel:false,ipad_mini:false,ipad_pro:false,laptop_hd:false,qhd:false});var deviceSelection=deviceState[0];var setDeviceSelection=deviceState[1];
         var auditCacheRef=useRef({});
         var pdfCancelRef=useRef(false);
+        var imageCacheRef=useRef({});
+        var imageGalleryState=useState([]);var imageGallery=imageGalleryState[0];var setImageGallery=imageGalleryState[1];
         var manualState=useState({'Header and navigation fit without overlap':false,'Hero artwork and key imagery are not cropped':false,'No horizontal scrolling or clipped content':false,'Buttons and links have comfortable touch spacing':false,'Forms remain readable and usable on mobile':false,'Sticky/fixed UI does not cover important content':false,'Typography remains readable at phone and tablet sizes':false,'Footer and cookie/PWA overlays do not collide':false});var manualChecks=manualState[0];var setManualChecks=manualState[1];
         var devices=[{key:'phone',name:'iPhone 15',width:393,height:852},{key:'tablet',name:'iPad Air',width:820,height:1180},{key:'laptop',name:'MacBook Air 13',width:1440,height:900},{key:'desktop',name:'Desktop HD',width:1920,height:1080},{key:'iphone_se',name:'iPhone SE',width:375,height:667},{key:'iphone_max',name:'iPhone 15 Pro Max',width:430,height:932},{key:'pixel',name:'Pixel 8',width:412,height:915},{key:'ipad_mini',name:'iPad mini',width:768,height:1024},{key:'ipad_pro',name:'iPad Pro 12.9',width:1024,height:1366},{key:'laptop_hd',name:'Laptop HD',width:1366,height:768},{key:'qhd',name:'Desktop QHD',width:2560,height:1440}];
         var typeDefs=[['all','All'],['page','Pages'],['post','Posts'],['product','Products'],['product_category','Product categories'],['category','Categories'],['tag','Tags'],['author','Authors'],['other','Other']];
@@ -2439,29 +2763,90 @@
         var typeCounts={};pages.forEach(function(p){var t=classifyPage(p);typeCounts[t]=(typeCounts[t]||0)+1;});
         var filteredPages=pages.filter(function(p){var q=pageFilter.trim().toLowerCase(),typeOk=typeFilter==='all'||classifyPage(p)===typeFilter;return typeOk&&(!q||p.url.toLowerCase().indexOf(q)>=0||String(p.path||'').toLowerCase().indexOf(q)>=0);});
         var selectedCount=pages.filter(function(p){return !!selected[p.url];}).length;
-        function scopePages(){if(pdfScope==='all')return pages.slice();if(pdfScope==='visible')return filteredPages.slice();if(pdfScope.indexOf('type:')===0){var t=pdfScope.slice(5);return pages.filter(function(p){return classifyPage(p)===t;});}return pages.filter(function(p){return !!selected[p.url];});}
+        function scopePages(){if(pdfScope==='selected'&&typeFilter!=='all')return filteredPages.filter(function(p){return !!selected[p.url];});if(pdfScope==='all')return pages.slice();if(pdfScope==='visible')return filteredPages.slice();if(pdfScope.indexOf('type:')===0){var t=pdfScope.slice(5);return pages.filter(function(p){return classifyPage(p)===t;});}return pages.filter(function(p){return !!selected[p.url];});}
         var scopedCount=scopePages().length;
         var activeDeviceCount=devices.filter(function(d){return !!deviceSelection[d.key];}).length;
         var totalCaptureCount=scopedCount*activeDeviceCount;
         async function mapLimit(items,limit,worker){var out=new Array(items.length),next=0,done=0;async function runner(){while(true){var i=next++;if(i>=items.length)return;out[i]=await worker(items[i],i);done++;setPdfProgress('Testing pages '+done+'/'+items.length+' · cached results are reused');}}var jobs=[];for(var j=0;j<Math.min(limit,items.length);j++)jobs.push(runner());await Promise.all(jobs);return out;}
         async function testReportPage(p,includeAudit){var detailKey=includeAudit?'full':'visual';var cacheKey=(fresh?'fresh:':'cached:')+detailKey+':'+p.url;if(!fresh&&auditCacheRef.current[cacheKey])return auditCacheRef.current[cacheKey];var previewReq=request('seopc_toolkit_design_preview',{url:p.url,fresh:fresh?'1':'0'},props.token);var item;if(includeAudit){var settled=await Promise.allSettled([request('seopc_toolkit_analyze',{url:p.url,fresh:fresh?'1':'0'},props.token),previewReq]);item={url:p.url,content_type:classifyPage(p),audit:settled[0].status==='fulfilled'?settled[0].value:{url:p.url,design:{score:0,issues:['Could not complete automated design analysis for this page: '+settled[0].reason.message]}},preview:settled[1].status==='fulfilled'?settled[1].value:null};}else{var previewResult=await previewReq;item={url:p.url,content_type:classifyPage(p),audit:null,preview:previewResult};}if(!fresh)auditCacheRef.current[cacheKey]=item;return item;}
-        async function saveDevicePdf(device){var chosen=scopePages();if(!chosen.length){setPdfError('The selected PDF scope has no pages.');return;}if(!device){setPdfError('Choose a device size.');return;}var includeAudit=pdfDetail==='full';pdfCancelRef.current=false;setPdfBusy(device.key);setPdfError('');setPdfProgress('Preparing '+chosen.length+' pages for '+device.name+'…');try{var reportPages=await mapLimit(chosen,1,async function(p){if(pdfCancelRef.current)throw new Error('Report cancelled.');return testReportPage(p,includeAudit);});if(pdfCancelRef.current)throw new Error('Report cancelled.');setPdfProgress('Building '+device.name+' PDF · '+chosen.length+' fresh screenshots…');await downloadDesignQaDevicePdf(reportPages,device,manualChecks,function(info){if(pdfCancelRef.current)throw new Error('Report cancelled.');setPdfProgress('Capturing '+info.label+' · '+info.page+'/'+info.pages);},{quality:pdfQuality,includeFindings:includeAudit,shouldCancel:function(){return pdfCancelRef.current;}});setPdfProgress('');}catch(e){if((e.message||'')!=='Report cancelled.')setPdfError(e.message||'Could not create the device PDF.');else setPdfProgress('Report cancelled.');}finally{setPdfBusy('');}}
+        async function saveDevicePdf(device){
+            var chosen=scopePages();
+            if(!chosen.length){setPdfError('Select at least one page.');return;}
+            if(!device){setPdfError('Choose a device size.');return;}
+            var includeAudit=pdfDetail==='full';
+            var keyPrefix=device.key+':'+pdfQuality+':'+(fresh?'fresh':'cached')+':';
+            pdfCancelRef.current=false;
+            setPdfBusy(device.key);setPdfError('');
+            setImageGallery(function(old){var known={};old.forEach(function(item){known[item.key]=item;});chosen.forEach(function(p){var key=keyPrefix+p.url;var entry=imageCacheRef.current[key];known[key]={url:p.url,label:pageName(p),device:device.name,key:key,ready:!!entry,blobUrl:entry?entry.blobUrl:null};});return Object.keys(known).map(function(key){return known[key];});});
+            try{
+                for(var i=0;i<chosen.length;i++){
+                    if(pdfCancelRef.current)throw new Error('Report cancelled.');
+                    var page=chosen[i],key=keyPrefix+page.url;
+                    if(!imageCacheRef.current[key]){
+                        setPdfProgress('Preparing '+device.name+' · '+(i+1)+'/'+chosen.length+' · '+pageName(page));
+                        var report=await testReportPage(page,includeAudit);
+                        if(!report.preview||!report.preview.html)throw new Error('No snapshot available for '+pageName(page));
+                        var capture=await capturePreviewHtml(report.preview.html,device,pdfQuality);
+                        if(!capture)throw new Error('Screenshot failed for '+pageName(page));
+                        var composed=await composeFramedDeviceScreenshot(capture,device,pageName(page),{quality:pdfQuality});
+                        if(!composed||!composed.blob)throw new Error('Image encoding failed for '+pageName(page));
+                        imageCacheRef.current[key]={blob:composed.blob,blobUrl:URL.createObjectURL(composed.blob),type:composed.type};
+                    }
+                    var cache=imageCacheRef.current[key];
+                    setImageGallery(function(old){return old.map(function(item){return item.key===key?Object.assign({},item,{ready:true,blobUrl:cache.blobUrl}):item;});});
+                    // Yield to the browser so thumbnails and Cancel remain responsive.
+                    await new Promise(function(resolve){setTimeout(resolve,35);});
+                }
+                setPdfProgress('Screenshots ready · '+chosen.length+' images. Download the ZIP when needed.');
+            }catch(e){if(e.message!=='Report cancelled.')setPdfError(e.message||'Could not generate images.');else setPdfProgress('Generation cancelled. Already completed images remain available.');}
+            finally{setPdfBusy('');}
+        }
+        function downloadCachedDeviceImage(device, page){
+            var prefix=device.key+':'+pdfQuality+':'+(fresh?'fresh':'cached')+':';
+            var entry=imageCacheRef.current[prefix+page.url];
+            if(!entry||!entry.blob){setPdfError('Generate this device screenshot first.');return;}
+            var extension=entry.type==='image/avif'?'avif':entry.type==='image/webp'?'webp':'png';
+            downloadBlob(entry.blob,'design-qa-'+slugifyLabel(pageName(page),'page')+'-'+slugifyLabel(device.name,'device')+'.'+extension);
+        }
+        function downloadGalleryImage(item){
+            var entry=imageCacheRef.current[item.key];
+            if(!entry||!entry.blob){setPdfError('This screenshot is not available.');return;}
+            var extension=entry.type==='image/avif'?'avif':entry.type==='image/webp'?'webp':'png';
+            downloadBlob(entry.blob,'design-qa-'+slugifyLabel(item.label,'page')+'-'+slugifyLabel(item.device,'device')+'.'+extension);
+        }
+        async function downloadCachedDeviceZip(device){
+            var chosen=scopePages();var prefix=device.key+':'+pdfQuality+':'+(fresh?'fresh':'cached')+':';
+            var entries=chosen.map(function(p){return {page:p,entry:imageCacheRef.current[prefix+p.url]};});
+            if(entries.some(function(x){return !x.entry;})){setPdfError('Generate this device first. Some screenshots are missing.');return;}
+            setPdfError('');setPdfBusy(device.key);
+            try{
+                await ensureZipLibrary();
+                var zip=new window.JSZip(),ext={'image/avif':'avif','image/webp':'webp','image/png':'png'};
+                entries.forEach(function(item,i){zip.file(String(i+1).padStart(2,'0')+'-'+slugifyLabel(pageName(item.page),'page')+'-'+slugifyLabel(device.name,'device')+'.'+(ext[item.entry.type]||'png'),item.entry.blob);});
+                zip.file('README.txt','Website Growth Toolkit – responsive screenshots\nDevice: '+device.name+' ('+device.width+'x'+device.height+')\nAll screenshots were generated in the browser. No ZIP is uploaded to the server.');
+                var result=await zip.generateAsync({type:'blob',compression:'STORE'});
+                downloadBlob(result,'design-qa-'+slugifyLabel(device.name,'device')+'-'+slugifyLabel(pdfHost(url),'website')+'.zip');
+            }catch(e){setPdfError(e.message||'ZIP export failed.');}
+            finally{setPdfBusy('');}
+        }
         function cancelPdf(){pdfCancelRef.current=true;setPdfProgress('Stopping after the current capture…');}
         var design=audit&&audit.design,safeUrl=audit&&audit.url;
         function signalCard(label,value,note,tone){return h('div',{className:'seopc-design-signal is-'+(tone||'neutral')},h('strong',null,value),h('span',null,label),note?h('small',null,note):null);}
         return h('div',null,
-            h('div',{className:'seopc-hero-panel seopc-hero-design'},h('div',null,h('span',{className:'seopc-eyebrow'},'Design QA'),h('h2',null,'Multi-page responsive QA & visual PDF'),h('p',null,'Discover the website, filter by content type, select whole groups or individual URLs, then export an optimised high-quality visual report.')),h('form',{className:'seopc-url-form',onSubmit:function(e){e.preventDefault();loadPages();}},h('div',{className:'seopc-input-grow'},h('label',null,'Website URL'),h('input',{type:'url',value:url,required:true,placeholder:'https://example.com',onChange:function(e){setUrl(e.target.value);}})),h(AjaxFreshToggle,{checked:fresh,onChange:setFresh}),h(Button,{type:'submit',variant:'primary',busy:pagesBusy,disabled:pagesBusy||!url.trim()},pagesBusy?'Loading pages…':'1. Load website pages'))),
+            h('div',{className:'seopc-hero-panel seopc-hero-design'},h('div',null,h('span',{className:'seopc-eyebrow'},'Design QA'),h('h2',null,'Multi-page responsive QA & visual export'),h('p',null,'Discover the website, filter by content type, select whole groups or individual URLs, then export framed screenshot packs as compact AVIF image ZIPs.')),h('form',{className:'seopc-url-form',onSubmit:function(e){e.preventDefault();loadPages();}},h('div',{className:'seopc-input-grow'},h('label',null,'Website URL'),h('input',{type:'url',value:url,required:true,placeholder:'https://example.com',onChange:function(e){setUrl(e.target.value);}})),h(AjaxFreshToggle,{checked:fresh,onChange:setFresh}),h(Button,{type:'submit',variant:'primary',busy:pagesBusy,disabled:pagesBusy||!url.trim()},pagesBusy?'Loading pages…':'1. Load website pages'))),
             error?h(Notice,{type:error.indexOf('completed')>=0?'warning':'error'},error):null,
             h('div',{className:'seopc-external-test-links'},h('span',null,'Real-browser links:'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://responsivetool.com/?url='+encodeURIComponent((safeUrl||url.trim())||'')+'&phone=iphone-15&desktop=macbook-air-13&ipad=ipad-air'},'ResponsiveTool'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://responsivly.com/'},'Responsivly'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://wavespeed.ai/free-tools/responsive-tester'},'WaveSpeed'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://www.eazystudio.com/device-preview-tool/'},'EazyStudio'),h('a',{target:'_blank',rel:'noopener noreferrer',href:'https://www.browserstack.com/live'},'BrowserStack')),
-            pages.length?h(Section,{title:'2. Choose pages for the PDF',subtitle:'Filter by WordPress/WooCommerce content type, select complete groups, or tick individual URLs.'},
+            pages.length?h(Section,{title:'2. Choose pages for screenshots',subtitle:'Filter by WordPress/WooCommerce content type, select complete groups, or tick individual URLs.'},
                 h('div',{className:'seopc-page-type-filters'},typeDefs.map(function(def){var count=def[0]==='all'?pages.length:(typeCounts[def[0]]||0);return h('button',{type:'button',key:def[0],className:typeFilter===def[0]?'is-active':'',onClick:function(){setTypeFilter(def[0]);}},h('span',null,def[1]),h('b',null,count));})),
                 h('div',{className:'seopc-page-picker-toolbar'},h('input',{type:'search',value:pageFilter,placeholder:'Filter URLs or paths…',onChange:function(e){setPageFilter(e.target.value);}}),h('div',{className:'seopc-inline-actions'},h(Button,{variant:'light',onClick:function(){setSelectionFor(pages,true);}},'Select all'),h(Button,{variant:'light',onClick:function(){setSelectionFor(pages,false);}},'Unselect all'),h(Button,{variant:'light',onClick:function(){setSelectionFor(filteredPages,true);}},'Select filtered'),h(Button,{variant:'light',onClick:function(){setSelectionFor(filteredPages,false);}},'Clear filtered'),h('strong',null,selectedCount+' selected / '+pages.length+' found'))),
                 h('div',{className:'seopc-page-picker'},filteredPages.map(function(p){return h('label',{key:p.url,className:selected[p.url]?'is-selected':''},h('input',{type:'checkbox',checked:!!selected[p.url],onChange:function(){toggleSelected(p.url);}}),h('span',{className:'seopc-page-picker-copy'},h('strong',null,pageName(p)),h('small',null,p.url)),h('span',{className:'seopc-page-type-badge'},(typeDefs.find(function(d){return d[0]===classifyPage(p);})||['','Other'])[1]),p.lastmod?h('time',null,p.lastmod.slice(0,10)):null);})),
-                h('div',{className:'seopc-report-options'},h('label',null,h('span',null,'PDF scope'),h('select',{value:pdfScope,onChange:function(e){setPdfScope(e.target.value);}},h('option',{value:'selected'},'Selected checkboxes ('+selectedCount+')'),h('option',{value:'visible'},'Current filtered view ('+filteredPages.length+')'),h('option',{value:'all'},'All discovered pages ('+pages.length+')'),typeDefs.filter(function(d){return d[0]!=='all'&&(typeCounts[d[0]]||0)>0;}).map(function(d){return h('option',{key:d[0],value:'type:'+d[0]},d[1]+' only ('+(typeCounts[d[0]]||0)+')');}))),h('label',null,h('span',null,'PDF quality'),h('select',{value:pdfQuality,onChange:function(e){setPdfQuality(e.target.value);}},h('option',{value:'fast'},'Fast · smaller PDF'),h('option',{value:'balanced'},'Smart · recommended'),h('option',{value:'high'},'High · client quality'),h('option',{value:'print'},'Print · sharpest / slower'))),h('label',null,h('span',null,'Report content'),h('select',{value:pdfDetail,onChange:function(e){setPdfDetail(e.target.value);}},h('option',{value:'visual'},'Visual only · fastest'),h('option',{value:'full'},'Visual + QA findings'))),h('div',{className:'seopc-scope-count'},h('strong',null,scopedCount),h('span',null,'pages will be included'))),
-                h('div',{className:'seopc-device-choice'},h('strong',null,'PDF device views'),h('small',null,'Choose the device reports you need. Each device is exported as a separate PDF for better speed, stability and screenshot quality.'),devices.map(function(d){return h('label',{key:d.key},h('input',{type:'checkbox',checked:!!deviceSelection[d.key],onChange:function(){toggleDevice(d.key);}}),h('span',null,d.name+' '+d.width+'×'+d.height));})),h('div',{className:'seopc-capture-estimate'},h('strong',null,scopedCount+' screenshots per device PDF'),h('span',null,activeDeviceCount+' device reports selected. Separate reports avoid '+totalCaptureCount+' screenshots being held in one huge PDF build.')),
-                h('div',{className:'seopc-report-toolbar seopc-report-toolbar-spaced'},h('div',null,h('strong',null,'3. Download device reports'),h('span',null,'Each button builds one independent device PDF. Only the active device is rendered; other selected devices wait until you start them. Desktop/laptop captures use a fixed white viewport canvas to prevent black or cropped areas.')),h('div',{className:'seopc-report-actions seopc-device-pdf-actions'},devices.filter(function(d){return !!deviceSelection[d.key];}).map(function(d){return h(Button,{key:d.key,variant:'primary',onClick:function(){saveDevicePdf(d);},busy:pdfBusy===d.key,disabled:!!pdfBusy||scopedCount===0},pdfBusy===d.key?'Building '+d.name+'…':'PDF · '+d.name);}),pdfBusy?h(Button,{onClick:cancelPdf},'Cancel'):null)),pdfProgress?h(Notice,{type:'info'},pdfProgress):null,pdfError?h(Notice,{type:'error'},pdfError):null
+                h('div',{className:'seopc-report-options'},h('label',null,h('span',null,'Export scope'),h('select',{value:pdfScope,onChange:function(e){setPdfScope(e.target.value);}},h('option',{value:'selected'},'Selected in current filter ('+(typeFilter==='all'?selectedCount:filteredPages.filter(function(p){return !!selected[p.url];}).length)+')'),h('option',{value:'visible'},'Current filtered view ('+filteredPages.length+')'),h('option',{value:'all'},'All discovered pages ('+pages.length+')'),typeDefs.filter(function(d){return d[0]!=='all'&&(typeCounts[d[0]]||0)>0;}).map(function(d){return h('option',{key:d[0],value:'type:'+d[0]},d[1]+' only ('+(typeCounts[d[0]]||0)+')');}))),h('label',null,h('span',null,'Capture quality'),h('select',{value:pdfQuality,onChange:function(e){setPdfQuality(e.target.value);}},h('option',{value:'fast'},'Fast · smaller images'),h('option',{value:'balanced'},'Smart · recommended'),h('option',{value:'high'},'High · client quality'),h('option',{value:'print'},'Print · sharpest / slower'))),h('label',null,h('span',null,'Export content'),h('select',{value:pdfDetail,onChange:function(e){setPdfDetail(e.target.value);}},h('option',{value:'visual'},'Visual only · fastest'),h('option',{value:'full'},'Visual + QA findings'))),h('div',{className:'seopc-scope-count'},h('strong',null,scopedCount),h('span',null,'pages will be included in the current export'))),
+                h('div',{className:'seopc-device-choice'},h('strong',null,'Screenshot device views'),h('small',null,'Choose the device screenshot packs you need. Each device is exported as a separate ZIP with framed AVIF images for better speed, stability and visual quality.'),devices.map(function(d){return h('label',{key:d.key},h('input',{type:'checkbox',checked:!!deviceSelection[d.key],onChange:function(){toggleDevice(d.key);}}),h('span',null,d.name+' '+d.width+'×'+d.height));})),h('div',{className:'seopc-capture-estimate'},h('strong',null,scopedCount+' screenshots per device export'),h('span',null,activeDeviceCount+' device views selected. One page downloads as an image; multiple pages download as a ZIP.')),
+                h('div',{className:'seopc-report-toolbar seopc-report-toolbar-spaced'},h('div',null,h('strong',null,'3. Generate and preview device screenshots'),h('span',null,'Generate one device at a time. Download a single image directly, or use ZIP for multiple pages. Completed screenshots remain available below.')),h('div',{className:'seopc-report-actions seopc-device-pdf-actions'},devices.filter(function(d){return !!deviceSelection[d.key];}).map(function(d){var prefix=d.key+':'+pdfQuality+':'+(fresh?'fresh':'cached')+':';var ready=scopePages().length>0&&scopePages().every(function(p){return !!imageCacheRef.current[prefix+p.url];});return h('div',{key:d.key,className:'seopc-device-export-buttons'},h(Button,{variant:'primary',onClick:function(){saveDevicePdf(d);},busy:pdfBusy===d.key,disabled:!!pdfBusy||scopedCount===0},pdfBusy===d.key?'Generating '+d.name+'…':ready?'View / refresh · '+d.name:'Generate · '+d.name),h(Button,{variant:'light',onClick:function(){if(scopePages().length===1){downloadCachedDeviceImage(d,scopePages()[0]);}else{downloadCachedDeviceZip(d);}},disabled:!!pdfBusy||!ready},(scopedCount===1?'Download image · ':'Download ZIP · ')+d.name));}),pdfBusy?h(Button,{onClick:cancelPdf},'Cancel'):null)),
+                imageGallery.length?h('div',{className:'seopc-image-gallery'},h('h3',null,'Generated screenshots · '+imageGallery.filter(function(x){return x.ready;}).length+' ready across devices'),h('div',{className:'seopc-image-gallery-grid'},imageGallery.map(function(item){return h('div',{key:item.key,className:'seopc-image-gallery-item'},item.ready?h('a',{href:item.blobUrl,target:'_blank',rel:'noopener noreferrer'},h('img',{src:item.blobUrl,loading:'lazy',decoding:'async',alt:item.label+' '+item.device})):h('div',{className:'seopc-image-gallery-pending'},'Waiting…'),h('strong',null,item.label),h('small',null,item.device),item.ready?h('button',{type:'button',className:'seopc-gallery-image-download',onClick:function(){downloadGalleryImage(item);}},'Download image'):null);}))):null,
+                pdfProgress?h(Notice,{type:'info'},pdfProgress):null,pdfError?h(Notice,{type:'error'},pdfError):null
             ):h(Section,{title:'Page discovery'},h(Notice,{type:'info'},'Enter the website URL and click “Load website pages”. The sitemap list will appear here with content-type filters and PDF controls.')),
-            h(Section,{title:'Single-page live QA',subtitle:'Use this when you want to inspect one page interactively before producing the multi-page PDF.'},h('form',{className:'seopc-url-form seopc-url-form-compact',onSubmit:run},h('div',{className:'seopc-input-grow'},h('label',null,'Page URL'),h('input',{type:'url',value:url,required:true,onChange:function(e){setUrl(e.target.value);}})),h('label',null,'Preview width',h('select',{value:viewport,onChange:function(e){setViewport(Number(e.target.value));}},[375,393,430,768,820,1024,1366,1440,1920].map(function(v){return h('option',{key:v,value:v},v+' px');}))),h(Button,{type:'submit',variant:'light',busy:busy,disabled:busy||!url.trim()},busy?'Testing…':'Run single-page QA'))),
+            h(Section,{title:'Single-page live QA',subtitle:'Use this when you want to inspect one page interactively before generating device screenshots.'},h('form',{className:'seopc-url-form seopc-url-form-compact',onSubmit:run},h('div',{className:'seopc-input-grow'},h('label',null,'Page URL'),h('input',{type:'url',value:url,required:true,onChange:function(e){setUrl(e.target.value);}})),h('label',null,'Preview width',h('select',{value:viewport,onChange:function(e){setViewport(Number(e.target.value));}},[375,393,430,768,820,1024,1366,1440,1920].map(function(v){return h('option',{key:v,value:v},v+' px');}))),h(Button,{type:'submit',variant:'light',busy:busy,disabled:busy||!url.trim()},busy?'Testing…':'Run single-page QA'))),
             audit&&design?h('div',{className:'seopc-results'},
                 h('div',{className:'seopc-design-scorebar'},h(ScoreCard,{score:design.score,label:'Design QA'}),h('div',{className:'seopc-design-kpis'},h('div',null,h('strong',null,design.fixed_width_count||0),h('span',null,'Fixed-width risks')),h('div',null,h('strong',null,design.missing_image_dimensions||0),h('span',null,'Missing dimensions')),h('div',null,h('strong',null,design.unlabelled_controls||0),h('span',null,'Unlabelled controls')),h('div',null,h('strong',null,design.duplicate_id_count||0),h('span',null,'Duplicate IDs')))),
                 h(Section,{title:'Automated responsive & UX signals'},h('div',{className:'seopc-design-signal-grid'},signalCard('Viewport meta',design.viewport?'Present':'Missing',design.viewport||'Required for mobile layouts',design.viewport?'good':'bad'),signalCard('Responsive images',design.responsive_image_count||0,(design.missing_srcset_count||0)+' without srcset/sizes',(design.missing_srcset_count||0)>3?'warn':'good'),signalCard('Fixed / sticky UI',(design.fixed_position_count||0)+' / '+(design.sticky_position_count||0),'Review overlays at small heights',(design.fixed_position_count||0)>3?'warn':'neutral'),signalCard('Unnamed actions',design.unnamed_action_count||0,'Links/buttons without accessible names',(design.unnamed_action_count||0)?'bad':'good'))),

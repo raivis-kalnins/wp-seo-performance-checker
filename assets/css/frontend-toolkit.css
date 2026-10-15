@@ -3126,3 +3126,15 @@ body.seopc-toolkit-hide-theme-chrome .wp-block-post-content {
 .seopc-device-pdf-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;max-width:760px}
 .seopc-device-pdf-actions .seopc-button{white-space:nowrap}
 @media (max-width:900px){.seopc-device-pdf-actions{justify-content:flex-start;width:100%}}
+
+/* Device screenshot gallery: browser-only lazy previews */
+.seopc-image-gallery{margin:18px 0;padding:18px;background:#f6faf9;border:1px solid #dbe8e3;border-radius:16px}
+.seopc-image-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-top:12px}
+.seopc-image-gallery-item{background:white;padding:10px;border:1px solid #e2e8e5;border-radius:12px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.seopc-image-gallery-item a{display:block;max-height:300px;overflow:hidden;text-align:center;background:#eef4f2;border-radius:9px}
+.seopc-image-gallery-item img{display:block;width:100%;height:220px;object-fit:contain}
+.seopc-image-gallery-item strong{font-size:12px;overflow-wrap:anywhere}.seopc-image-gallery-item small{font-size:11px;color:#62756f}
+.seopc-image-gallery-pending{height:220px;display:grid;place-items:center;color:#64748b;background:#eef4f2;border-radius:9px}
+.seopc-device-export-buttons{display:flex;flex-direction:column;gap:6px}
+
+.seopc-gallery-image-download{margin-top:8px;padding:7px 10px;border:1px solid #bdd9d1;border-radius:7px;background:#fff;color:#086c56;cursor:pointer;font:inherit;font-size:12px}.seopc-gallery-image-download:hover{background:#edf8f4}
