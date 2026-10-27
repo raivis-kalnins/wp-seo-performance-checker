@@ -3541,7 +3541,13 @@
 
     function App() {
         var storedToken = '';
-        try { storedToken = sessionStorage.getItem('seopc_toolkit_token') || ''; } catch (e) {}
+        try {
+            storedToken = localStorage.getItem('seopc_toolkit_token') || sessionStorage.getItem('seopc_toolkit_token') || '';
+            if (storedToken) {
+                localStorage.setItem('seopc_toolkit_token', storedToken);
+                sessionStorage.removeItem('seopc_toolkit_token');
+            }
+        } catch (e) {}
         var tokenState = useState(config.passwordProtected ? storedToken : 'public');
         var token = tokenState[0];
         var setToken = tokenState[1];
@@ -3568,7 +3574,7 @@
             var resolved = config.passwordProtected ? nextToken : 'public';
             setToken(resolved);
             if (config.passwordProtected) {
-                try { sessionStorage.setItem('seopc_toolkit_token', resolved); } catch (e) {}
+                try { localStorage.setItem('seopc_toolkit_token', resolved); } catch (e) {}
             }
         }
         function expired() {
@@ -3577,7 +3583,7 @@
                 return;
             }
             setToken('');
-            try { sessionStorage.removeItem('seopc_toolkit_token'); } catch (e) {}
+            try { localStorage.removeItem('seopc_toolkit_token'); sessionStorage.removeItem('seopc_toolkit_token'); } catch (e) {}
         }
         function importMediaToStudio(type, file, item) {
             if (type !== 'image') return;

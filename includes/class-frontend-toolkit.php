@@ -12,7 +12,7 @@ if (!defined('ABSPATH')) {
  */
 class SEOPC_Frontend_Toolkit {
     const OPTION = 'seopc_toolkit_settings';
-    const TOKEN_TTL_MAX = 86400;
+    const TOKEN_TTL_MAX = 2592000;
     private static $booted = false;
 
     public function __construct() {
@@ -53,7 +53,7 @@ class SEOPC_Frontend_Toolkit {
             'password_protection' => 1,
             'password_hash' => '',
             'password_secret' => '',
-            'session_minutes' => 60,
+            'session_minutes' => 43200,
             'cache_minutes' => 10,
             'rate_limit_hour' => 40,
             'pagespeed_api_key' => '',
@@ -62,7 +62,7 @@ class SEOPC_Frontend_Toolkit {
             'pexels_api_key' => '',
             'pixabay_api_key' => '',
             'unsplash_access_key' => '',
-            'security_defaults_version' => 253,
+            'security_defaults_version' => 344,
             'admin_bypass' => 1,
             'full_screen' => 1,
             'hide_theme_chrome' => 0,
@@ -99,6 +99,15 @@ class SEOPC_Frontend_Toolkit {
 
         if (empty($settings['password_secret']) && wp_check_password('Seo@test', $settings['password_hash'])) {
             $settings['password_secret'] = $this->encrypt_secret('Seo@test');
+            $changed = true;
+        }
+
+        // v3.4.4: migrate existing installations once to the requested 30-day
+        // front-end unlock. Administrators can still deliberately choose a shorter
+        // session later without ensure_settings() overwriting their choice.
+        if ($security_version < 344) {
+            $settings['session_minutes'] = 43200;
+            $settings['security_defaults_version'] = 344;
             $changed = true;
         }
 
@@ -178,7 +187,7 @@ class SEOPC_Frontend_Toolkit {
                     </tr>
                     <tr>
                         <th scope="row"><label for="seopc-session-minutes"><?php esc_html_e('Session length', 'seo-performance-checker'); ?></label></th>
-                        <td><input id="seopc-session-minutes" type="number" min="5" max="1440" name="session_minutes" value="<?php echo esc_attr((int) $settings['session_minutes']); ?>"> <?php esc_html_e('minutes', 'seo-performance-checker'); ?></td>
+                        <td><input id="seopc-session-minutes" type="number" min="5" max="43200" name="session_minutes" value="<?php echo esc_attr((int) $settings['session_minutes']); ?>"> <?php esc_html_e('minutes', 'seo-performance-checker'); ?></td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="seopc-cache-minutes"><?php esc_html_e('Result cache', 'seo-performance-checker'); ?></label></th>
@@ -259,7 +268,7 @@ class SEOPC_Frontend_Toolkit {
         $settings['hide_theme_chrome'] = !empty($_POST['hide_theme_chrome']) ? 1 : 0;
         $settings['openverse_enabled'] = !empty($_POST['openverse_enabled']) ? 1 : 0;
         $settings['wikimedia_enabled'] = !empty($_POST['wikimedia_enabled']) ? 1 : 0;
-        $settings['session_minutes'] = min(1440, max(5, absint($_POST['session_minutes'] ?? 60)));
+        $settings['session_minutes'] = min(43200, max(5, absint($_POST['session_minutes'] ?? 43200)));
         $settings['cache_minutes'] = min(120, max(1, absint($_POST['cache_minutes'] ?? 10)));
         $settings['rate_limit_hour'] = min(500, max(5, absint($_POST['rate_limit_hour'] ?? 40)));
         $settings['max_html_mb'] = min(10, max(1, absint($_POST['max_html_mb'] ?? 6)));

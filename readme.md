@@ -1,3 +1,10 @@
+## 3.4.4 — 30-day front-end unlock persistence
+
+- Fixed repeated front-end password prompts when changing the website URL being audited or reopening the toolkit.
+- Successful unlocks are now stored persistently in the browser instead of only for the current tab session.
+- Front-end access tokens can remain valid for up to 30 days; existing shorter toolkit sessions are migrated to 30 days.
+- The manual **Lock** button still immediately removes the saved browser access token.
+
 ## 3.4.3 — Desktop viewport & Design QA alignment fix
 
 - Fix transparent or clipped right/bottom desktop screenshot edges: render at native viewport resolution before downscaling for quality/performance.
